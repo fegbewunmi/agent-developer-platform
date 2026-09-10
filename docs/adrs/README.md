@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-ADRs for decisions with a real tradeoff — not written mechanically for every topic the brief suggested; several naturally combined because the reasoning was shared (e.g. `AgentVersion` and `SkillVersion` immutability, or manifest storage and evaluation policy freshness). See each ADR's Context for why it exists as its own record or absorbed into another.
+ADRs for decisions with a real tradeoff - not written mechanically for every topic the brief suggested; several naturally combined because the reasoning was shared (e.g. `AgentVersion` and `SkillVersion` immutability, or manifest storage and evaluation policy freshness). See each ADR's Context for why it exists as its own record or absorbed into another.
 
 | # | Title | Status |
 |---|---|---|

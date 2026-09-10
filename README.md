@@ -2,11 +2,11 @@
 
 An internal control plane for Orion Commerce engineering teams to **register, version, evaluate, govern, and promote AI agents** and the capabilities they depend on (skills and MCP tools).
 
-This is **not** an agent runtime. It does not execute agents, does not run evaluations, and does not execute MCP tools. It is the system of record for *what agent version is running, what it's built from, what evidence justified promoting it, who approved it, and why* — the same relationship a deployment/release-management system has to the services it tracks, not the relationship a compute platform has to the workloads it runs.
+This is **not** an agent runtime. It does not execute agents, does not run evaluations, and does not execute MCP tools. It is the system of record for *what agent version is running, what it's built from, what evidence justified promoting it, who approved it, and why* - the same relationship a deployment/release-management system has to the services it tracks, not the relationship a compute platform has to the workloads it runs.
 
 ## Status
 
-**Phase 0 — architecture and documentation only.** No application code has been written yet. See [`docs/roadmap.md`](docs/roadmap.md) for the implementation plan and [`docs/open-questions.md`](docs/open-questions.md) for what's still unresolved.
+**Phase 1 complete, pending review.** Core domain schema, real JWT authentication, and the seeded Orion Commerce organization are implemented and verified (47 passing automated tests plus live manual verification) - see [`docs/phase-notes/phase-1.md`](docs/phase-notes/phase-1.md). No CRUD/write endpoints, MCP registry, evaluation integration, or frontend exist yet; that's Phase 2 onward. See [`docs/roadmap.md`](docs/roadmap.md) for the implementation plan and [`docs/open-questions.md`](docs/open-questions.md) for what's still unresolved.
 
 ## Why this exists
 
@@ -16,11 +16,11 @@ Orion Commerce has multiple teams building AI agents on different frameworks, mo
 
 This platform is designed against the **actual, inspected contracts** of three existing internal systems, not idealized versions of them:
 
-- **[Incident Investigation Platform](../ai-operations)** (`ai-operations`) — a live LangGraph + Vertex AI Gemini multi-agent system on Cloud Run. Treated as the first real managed agent (`incident-investigator`).
-- **Incident Operations MCP server** (`ai-operations/mcp_server`) — a FastMCP stdio server exposing 4 tools (3 read-only, 1 write/approval-gated) as a thin wrapper over the Incident Investigation Platform's API. Treated as the first governed MCP integration.
-- **[Agent Evaluation Platform](../agent-eval)** (`agent-eval`) — an independent FastAPI/Postgres service with a real `Agent`/`AgentVersion`/`Evaluator` model. Treated as the external source of truth for evaluation execution; this platform never re-implements evaluators, datasets, or regression logic.
+- **[Incident Investigation Platform](../ai-operations)** (`ai-operations`) - a live LangGraph + Vertex AI Gemini multi-agent system on Cloud Run. Treated as the first real managed agent (`incident-investigator`).
+- **Incident Operations MCP server** (`ai-operations/mcp_server`) - a FastMCP stdio server exposing 4 tools (3 read-only, 1 write/approval-gated) as a thin wrapper over the Incident Investigation Platform's API. Treated as the first governed MCP integration.
+- **[Agent Evaluation Platform](../agent-eval)** (`agent-eval`) - an independent FastAPI/Postgres service with a real `Agent`/`AgentVersion`/`Evaluator` model. Treated as the external source of truth for evaluation execution; this platform never re-implements evaluators, datasets, or regression logic.
 
-`doc-qa` (Document Q&A) was evaluated and found **not** to be a relevant integration boundary — see [`docs/product-overview.md`](docs/product-overview.md#evaluated-and-excluded-doc-qa). It is a local, unauthenticated, unversioned single-document demo with no MCP or programmatic interface.
+`doc-qa` (Document Q&A) was evaluated and found **not** to be a relevant integration boundary - see [`docs/product-overview.md`](docs/product-overview.md#evaluated-and-excluded-doc-qa). It is a local, unauthenticated, unversioned single-document demo with no MCP or programmatic interface.
 
 Where these systems have real gaps (no auth, a synchronous-only evaluation API, a non-server-enforced tool-approval gate), this platform's design accounts for the gap rather than pretending it doesn't exist. See [`docs/failure-modes.md`](docs/failure-modes.md).
 
@@ -48,7 +48,7 @@ Where these systems have real gaps (no auth, a synchronous-only evaluation API, 
 
 ## Sample organization: Orion Commerce
 
-Seeded (not real) teams, users, and agents used throughout the docs and, later, the seed data — see [`docs/product-overview.md`](docs/product-overview.md#orion-commerce-sample-organization) for the full roster. Only the Incident Investigator is a real runtime integration; the Customer Support Agent and Release Risk Agent are representative platform data, clearly marked as such wherever they appear.
+Seeded (not real) teams, users, and agents used throughout the docs and, later, the seed data - see [`docs/product-overview.md`](docs/product-overview.md#orion-commerce-sample-organization) for the full roster. Only the Incident Investigator is a real runtime integration; the Customer Support Agent and Release Risk Agent are representative platform data, clearly marked as such wherever they appear.
 
 ## Non-goals
 

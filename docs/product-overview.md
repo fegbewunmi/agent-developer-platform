@@ -13,11 +13,11 @@ Orion Commerce has multiple engineering teams building AI agents on different fr
 - Which tool calls require human approval before they execute?
 - What changed between this version and the previous production version?
 
-Today these answers live in scattered places: environment variables, hardcoded prompt strings, Slack threads, a Cloud Run deploy command someone remembers. The Incident Investigation Platform's own research (see its `docs/`) shows this concretely — model name and prompts are process-global settings, not attributes of a specific investigation, and there is no record of what configuration produced a given run.
+Today these answers live in scattered places: environment variables, hardcoded prompt strings, Slack threads, a Cloud Run deploy command someone remembers. The Incident Investigation Platform's own research (see its `docs/`) shows this concretely - model name and prompts are process-global settings, not attributes of a specific investigation, and there is no record of what configuration produced a given run.
 
 ## What the platform is
 
-**Orion Agent Developer Platform is an agent control plane.** It owns metadata, ownership, version definitions, capability grants, evaluation policy, lifecycle state, promotion workflow, and audit history for agents built by Orion Commerce teams. It does not own agent execution, evaluation execution, or MCP tool execution — those remain the responsibility of the systems that already do them. See [`control-plane-boundaries.md`](control-plane-boundaries.md).
+**Orion Agent Developer Platform is an agent control plane.** It owns metadata, ownership, version definitions, capability grants, evaluation policy, lifecycle state, promotion workflow, and audit history for agents built by Orion Commerce teams. It does not own agent execution, evaluation execution, or MCP tool execution - those remain the responsibility of the systems that already do them. See [`control-plane-boundaries.md`](control-plane-boundaries.md).
 
 The core lifecycle the platform manages:
 
@@ -29,14 +29,14 @@ create agent → create immutable version → attach capabilities → evaluate �
 
 Four roles, detailed in [`auth-and-approval-model.md`](auth-and-approval-model.md):
 
-- **Viewer** — read-only access across the platform (e.g. an SRE checking what's in production during an incident).
-- **Builder** — creates agents, versions, skills; attaches capabilities; requests evaluations and promotions.
-- **Reviewer** — approves or rejects promotion requests and grants of write-capable/approval-required MCP tools.
-- **Admin** — platform administration: evaluation policies, MCP registry, users/teams, emergency retirement.
+- **Viewer** - read-only access across the platform (e.g. an SRE checking what's in production during an incident).
+- **Builder** - creates agents, versions, skills; attaches capabilities; requests evaluations and promotions.
+- **Reviewer** - approves or rejects promotion requests and grants of write-capable/approval-required MCP tools.
+- **Admin** - platform administration: evaluation policies, MCP registry, users/teams, emergency retirement.
 
 ## Orion Commerce sample organization
 
-Seed data used consistently across docs, diagrams, and (later) the actual database seed script. **Only the Incident Investigator is a real runtime integration.** The Customer Support Agent and Release Risk Agent are representative platform data — realistic enough to exercise every workflow, but their "runtimes" are not real systems this platform calls. Every surface that displays them must visibly label them as seeded/representative, not live.
+Seed data used consistently across docs, diagrams, and (later) the actual database seed script. **Only the Incident Investigator is a real runtime integration.** The Customer Support Agent and Release Risk Agent are representative platform data - realistic enough to exercise every workflow, but their "runtimes" are not real systems this platform calls. Every surface that displays them must visibly label them as seeded/representative, not live.
 
 ### Teams
 
@@ -58,15 +58,15 @@ Seed data used consistently across docs, diagrams, and (later) the actual databa
 
 ### Agents
 
-**Incident Investigator** — real integration. LangGraph, Vertex AI Gemini 2.5 Flash, telemetry/deployment/knowledge investigation specialists, Incident Operations MCP (`get_investigation_status`, `search_documents`, `get_incident_history`, `create_ticket`), and Agent Evaluation Platform integration (agent-eval's own `incident-investigator` fixtures at `docs/06-data-model.md`/`docs/eval` in `ai-operations`). Owned by AI Platform.
+**Incident Investigator** - real integration. LangGraph, Vertex AI Gemini 2.5 Flash, telemetry/deployment/knowledge investigation specialists, Incident Operations MCP (`get_investigation_status`, `search_documents`, `get_incident_history`, `create_ticket`), and Agent Evaluation Platform integration (agent-eval's own `incident-investigator` fixtures at `docs/06-data-model.md`/`docs/eval` in `ai-operations`). Owned by AI Platform.
 
-**Customer Support Agent** — seeded, representative. RAG over customer knowledge, customer lookup, order status, refund workflows. Refund issuance is modeled as a write-capable, approval-required MCP tool to exercise the governance model realistically. Owned by Customer Support Engineering.
+**Customer Support Agent** - seeded, representative. RAG over customer knowledge, customer lookup, order status, refund workflows. Refund issuance is modeled as a write-capable, approval-required MCP tool to exercise the governance model realistically. Owned by Customer Support Engineering.
 
-**Release Risk Agent** — seeded, representative. Deployment analysis, repository/change metadata, CI/CD signal ingestion, release-risk recommendations. Owned by Developer Productivity.
+**Release Risk Agent** - seeded, representative. Deployment analysis, repository/change metadata, CI/CD signal ingestion, release-risk recommendations. Owned by Developer Productivity.
 
 ## Evaluated and excluded: doc-qa
 
-The Document Q&A platform (`/Users/ski/doc-qa`) was inspected as a candidate integration (per the brief's "where relevant" instruction) and excluded. It is a local-only, single-user, unauthenticated, unversioned single-document RAG demo with two plain REST endpoints (`POST /upload`, `POST /query`) and no MCP or programmatic-caller-facing interface. It has no agent identity, no environment promotion, and nothing to govern, register, or promote. Its one reusable idea — a per-claim LLM-judge faithfulness check — is noted as a technique reference in [`evaluation-and-promotion.md`](evaluation-and-promotion.md), not as an integration.
+The Document Q&A platform (`/Users/ski/doc-qa`) was inspected as a candidate integration (per the brief's "where relevant" instruction) and excluded. It is a local-only, single-user, unauthenticated, unversioned single-document RAG demo with two plain REST endpoints (`POST /upload`, `POST /query`) and no MCP or programmatic-caller-facing interface. It has no agent identity, no environment promotion, and nothing to govern, register, or promote. Its one reusable idea - a per-claim LLM-judge faithfulness check - is noted as a technique reference in [`evaluation-and-promotion.md`](evaluation-and-promotion.md), not as an integration.
 
 ## What the platform is not
 

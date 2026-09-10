@@ -4,7 +4,7 @@ Status: Proposed | Accepted | Superseded by NNNN
 
 ## Context
 
-What forces are at play — technical, organizational, or from inspecting existing systems. Cite specific findings (file paths, endpoint names, table names) where they drove the decision, not just general reasoning.
+What forces are at play - technical, organizational, or from inspecting existing systems. Cite specific findings (file paths, endpoint names, table names) where they drove the decision, not just general reasoning.
 
 ## Decision
 

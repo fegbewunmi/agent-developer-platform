@@ -46,4 +46,4 @@ agent-dev-platform/
 └── .mcp.json                    # if this repo's own tooling needs MCP access, e.g. to query ai-operations
 ```
 
-`backend/app/integrations/` is the one directory that deliberately knows about the shape of `ai-operations` and `agent-eval`'s real APIs — isolated there specifically so the rest of the codebase depends on this platform's own domain types, not on upstream response shapes, per [`control-plane-boundaries.md`](control-plane-boundaries.md).
+`backend/app/integrations/` is the one directory that deliberately knows about the shape of `ai-operations` and `agent-eval`'s real APIs - isolated there specifically so the rest of the codebase depends on this platform's own domain types, not on upstream response shapes, per [`control-plane-boundaries.md`](control-plane-boundaries.md).

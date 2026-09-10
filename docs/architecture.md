@@ -53,9 +53,9 @@ The platform sits beside three existing systems, never inside them. Only `ai-ope
 | Agent Developer Platform frontend | this repo, `frontend/` | Developer-facing UI | Yes |
 | Agent Developer Platform API | this repo, `backend/` | Control-plane logic: registries, grants, policy, promotion, audit | Yes |
 | Agent Developer Platform DB | this repo, Cloud SQL | Control-plane data of record | Yes |
-| Incident Investigation Platform | `ai-operations` | Agent execution (LangGraph) | No — existing, real |
-| Incident Operations MCP server | `ai-operations/mcp_server` | Tool execution for the Incident Investigator | No — existing, real |
-| Agent Evaluation Platform | `agent-eval` | Evaluator/dataset/regression execution | No — existing, real |
+| Incident Investigation Platform | `ai-operations` | Agent execution (LangGraph) | No - existing, real |
+| Incident Operations MCP server | `ai-operations/mcp_server` | Tool execution for the Incident Investigator | No - existing, real |
+| Agent Evaluation Platform | `agent-eval` | Evaluator/dataset/regression execution | No - existing, real |
 
 See [`control-plane-boundaries.md`](control-plane-boundaries.md) for the ownership rule that keeps these from blurring together, and [ADR-0001](adrs/0001-control-plane-execution-plane-separation.md) for the decision record.
 
@@ -76,6 +76,6 @@ See [`control-plane-boundaries.md`](control-plane-boundaries.md) for the ownersh
 
 ## Why FastAPI + Next.js + Cloud Run
 
-`ai-operations` and `agent-eval` both already use this exact stack (FastAPI backend, Next.js frontend; `agent-eval`'s isn't deployed yet but targets the same shape). Matching it isn't a style preference — it means Orion Commerce engineers moving between this platform and the systems it governs see one stack, and it means patterns already proven in `ai-operations` (Cloud Run + Cloud SQL + VPC connector, OpenTelemetry → Cloud Trace) can be reused directly rather than re-derived. See [`gcp-architecture.md`](gcp-architecture.md).
+`ai-operations` and `agent-eval` both already use this exact stack (FastAPI backend, Next.js frontend; `agent-eval`'s isn't deployed yet but targets the same shape). Matching it isn't a style preference - it means Orion Commerce engineers moving between this platform and the systems it governs see one stack, and it means patterns already proven in `ai-operations` (Cloud Run + Cloud SQL + VPC connector, OpenTelemetry → Cloud Trace) can be reused directly rather than re-derived. See [`gcp-architecture.md`](gcp-architecture.md).
 
-Notably, **this platform makes no LLM calls of its own** — it has no model provider dependency, unlike all three systems it governs. It is pure CRUD, orchestration, and policy evaluation over data supplied by other systems. See [ADR-0013](adrs/0013-no-first-party-model-usage.md).
+Notably, **this platform makes no LLM calls of its own** - it has no model provider dependency, unlike all three systems it governs. It is pure CRUD, orchestration, and policy evaluation over data supplied by other systems. See [ADR-0013](adrs/0013-no-first-party-model-usage.md).

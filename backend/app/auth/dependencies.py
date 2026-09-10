@@ -4,7 +4,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.jwks import JWKSProvider, RemoteJWKSProvider
+from app.auth.jwks import JWKSProvider, RemoteJWKSProvider, StaticJWKSProvider
 from app.auth.verify import TokenVerificationError, verify_id_token
 from app.config import settings
 from app.db.session import get_db
@@ -13,10 +13,15 @@ from app.models.identity import User
 
 @lru_cache
 def get_jwks_provider() -> JWKSProvider:
-    """Default: the real Identity Platform JWKS endpoint.
+    """Default: the real Identity Platform JWKS endpoint. If
+    settings.auth_jwks_file is set (dev-only - see scripts/dev_login.py),
+    reads a local static JWKS instead, so the app can run without a real GCP
+    project. Never set auth_jwks_file in production.
 
-    Overridden in tests via app.dependency_overrides - see tests/conftest.py.
+    Overridden again in tests via app.dependency_overrides - see tests/conftest.py.
     """
+    if settings.auth_jwks_file:
+        return StaticJWKSProvider.from_file(settings.auth_jwks_file)
     return RemoteJWKSProvider(settings.auth_jwks_url)
 
 

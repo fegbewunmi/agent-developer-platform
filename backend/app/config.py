@@ -30,5 +30,11 @@ class Settings(BaseSettings):
     auth_issuer: str = "https://securetoken.google.com/orion-commerce-dev"
     auth_audience: str = "orion-commerce-dev"
 
+    # Dev-only convenience: when set, app/auth/dependencies.py reads JWKS from
+    # this local file instead of auth_jwks_url - see scripts/dev_login.py and
+    # backend/README.md's "Local testing without real Identity Platform"
+    # section. Never set in production; RemoteJWKSProvider is the real path.
+    auth_jwks_file: str | None = None
+
 
 settings = Settings()

@@ -10,5 +10,8 @@ __pycache__/
 .env.*
 !.env.example
 
+# Dev-only local JWT signing keys (scripts/dev_login.py) - never real credentials
+backend/.devkeys/
+
 # OS
 .DS_Store

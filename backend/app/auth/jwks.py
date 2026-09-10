@@ -19,13 +19,23 @@ class JWKSProvider(ABC):
 
 
 class StaticJWKSProvider(JWKSProvider):
-    """Wraps a fixed JWK set - used in tests, never in production."""
+    """Wraps a fixed JWK set - used in tests, and (via from_file) for local
+    dev testing without a real Identity Platform project. Never used to
+    verify a real production request.
+    """
 
     def __init__(self, jwk_set: dict):
         self._client = jwt.PyJWKClient.__new__(jwt.PyJWKClient)
         self._keys = {
             key["kid"]: jwt.PyJWK.from_dict(key) for key in jwk_set["keys"]
         }
+
+    @classmethod
+    def from_file(cls, path: str) -> "StaticJWKSProvider":
+        import json
+
+        with open(path) as f:
+            return cls(json.load(f))
 
     def get_signing_key(self, kid: str) -> jwt.PyJWK:
         try:

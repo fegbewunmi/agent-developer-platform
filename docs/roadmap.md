@@ -24,10 +24,12 @@ Inspect `ai-operations`, `agent-eval`, `doc-qa`; design domain model, service bo
 
 ## Phase 3 — Agent Evaluation Platform integration + policy/gates
 
+**Explicit prerequisite, outside this repo's unilateral control:** `agent-eval` must be deployed somewhere reachable from this platform's environment (Cloud Run is the natural target, matching this platform's own topology), and some form of service-to-service authentication must exist between the two — today `agent-eval` has neither (`agent-eval/infra/` is a bare local Postgres `docker-compose.yml`, and neither system authenticates any caller). See [`evaluation-and-promotion.md`](evaluation-and-promotion.md#prerequisite-agent-eval-must-actually-be-reachable-from-this-platforms-cloud-environment). If these aren't in place when Phase 3 starts, Phase 3 proceeds against a local/dev `agent-eval` instance over an unauthenticated connection to prove the integration shape, and the phase report must say so explicitly rather than imply a production-safe integration was demonstrated.
+
 - `EvaluationPolicy` CRUD (Admin-only).
 - Cloud Tasks worker wrapping `agent-eval`'s synchronous `POST /runs`.
 - `EvaluationRunReference` + `EvaluationGateResult` computation, freshness re-checks.
-- First real end-to-end call against the live `agent-eval` service for the `incident-investigator` agent.
+- First end-to-end call against `agent-eval` for the `incident-investigator` agent — real cloud-to-cloud traffic if the prerequisite above is met by then, otherwise local/dev traffic with that limitation stated plainly in the phase report.
 
 ## Phase 4 — Promotion lifecycle, approvals, audit trail
 

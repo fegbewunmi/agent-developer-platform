@@ -25,7 +25,7 @@ Every event carries `id, event_type, entity_type, entity_id, actor, occurred_at,
 
 ## Consistency guarantee: audit writes are transactional, not best-effort
 
-`AuditEvent` rows are written to Postgres **in the same database transaction** as the state change they describe — e.g. the transaction that flips `AgentVersion.stage` to `production` also inserts the `agent_version.promoted` row. If the transaction commits, the audit record exists; if it doesn't, neither does the state change. This directly answers the brief's failure-mode question ("what happens when an audit event cannot be persisted?") — it can't happen independently of the change it describes, because it's not a separate write path.
+`AuditEvent` rows are written to Postgres **in the same database transaction** as the state change they describe — e.g. the transaction that flips `AgentVersionLifecycle.stage` to `production` (see [`agent-versioning.md`](agent-versioning.md#the-stage-vs-content-split) for why stage lives there, not on `AgentVersion`) also inserts the `agent_version.promoted` row. If the transaction commits, the audit record exists; if it doesn't, neither does the state change. This directly answers the brief's failure-mode question ("what happens when an audit event cannot be persisted?") — it can't happen independently of the change it describes, because it's not a separate write path.
 
 Pub/Sub publication of the same event happens **after** commit, as a best-effort fan-out for downstream consumers (see [`gcp-architecture.md`](gcp-architecture.md)) — an outbox-style pattern. If a downstream consumer misses an event, the durable, queryable source of truth (the `audit_events` table) is unaffected; a consumer can always re-derive state by reading it directly. Pub/Sub delivery is a convenience for reactive consumers, never the system of record.
 
@@ -34,7 +34,7 @@ Pub/Sub publication of the same event happens **after** commit, as a best-effort
 ```mermaid
 flowchart LR
     subgraph TX["Single DB transaction"]
-        A["State change\n(e.g. AgentVersion.stage = production)"] --> B["AuditEvent row inserted"]
+        A["State change\n(e.g. AgentVersionLifecycle.stage = production)"] --> B["AuditEvent row inserted"]
     end
     B -- "commit" --> C[(Postgres\naudit_events\nsource of truth)]
     C -- "after commit,\nbest-effort" --> D["Pub/Sub topic:\nagent-platform-events"]

@@ -17,8 +17,12 @@ Owns agents, skills, and MCP server registrations. Mirrors the `service_ownershi
 The long-lived logical identity. Holds no mutable "current config" — see [`agent-versioning.md`](agent-versioning.md). Analogous to `agent-eval`'s `agents` table (`id, name, description, adapter_key`), minus `adapter_key`, which is an execution-plane concern this platform doesn't need.
 
 ### AgentVersion
-`id, agent_id, version_label, manifest (jsonb), content_hash, source_ref, stage, created_by, created_at, promoted_at?, retired_at?`
-One immutable build. `manifest` is the full reproducible definition (see [`agent-manifest.md`](agent-manifest.md)). `content_hash` is a SHA-256 over the canonicalized manifest, used to detect any attempt to mutate a "created" version and to give audit events a stable content reference. `stage` is the **only** mutable field and only moves through the state machine in [`evaluation-and-promotion.md`](evaluation-and-promotion.md). A partial unique index enforces at most one `stage = 'production'` row per `agent_id`.
+`id, agent_id, version_label, manifest (jsonb), content_hash, source_ref, created_by, created_at`
+One immutable build. **Every column on this table is write-once.** `manifest` is the full reproducible definition (see [`agent-manifest.md`](agent-manifest.md)); `content_hash` is a SHA-256 over the canonicalized manifest, used to detect any attempt to mutate a "created" version and to give audit events a stable content reference. No `UPDATE` grant exists on this table at all for the application role — not even to an allow-listed column — which is what makes the immutability guarantee absolute rather than conventional. Notably, **`stage` is not a column on this table** — see `AgentVersionLifecycle` below and [`agent-versioning.md`](agent-versioning.md#the-stage-vs-content-split) for why.
+
+### AgentVersionLifecycle
+`agent_version_id (PK, FK), agent_id, stage, entered_at, entered_by`
+The version's **current position in the promotion lifecycle** — separate control-plane metadata *about* an `AgentVersion`, not part of its immutable content. One row per `AgentVersion`, created alongside it at `stage='draft'`, and updated in place on every legal transition (`docs/evaluation-and-promotion.md`). `agent_id` is denormalized from `AgentVersion.agent_id` purely so the single-production-version constraint can live on this table: `UNIQUE (agent_id) WHERE stage='production'`. Denormalizing it isn't an immutability concern — a version's owning `Agent` never changes, so this copy is itself write-once even though the row it lives on is mutable. Full transition history is not duplicated here; it's already captured completely by `AuditEvent` (`agent_version.promoted`, `agent_version.retired`, etc. — see [`audit-model.md`](audit-model.md)), so this table only needs to hold the current pointer, not a log.
 
 ### Skill
 `id, name (unique), owner_team_id, description, created_at`
@@ -75,6 +79,7 @@ Append-only. See [`audit-model.md`](audit-model.md) for the full event catalog a
 - **AgentManifest** as a separate entity — folded into `AgentVersion.manifest` (a JSONB column) rather than a standalone table or object-storage artifact. See [ADR-0003](adrs/0003-manifest-representation-and-storage.md).
 - **Ownership** as a separate entity — folded into `owner_team_id` / `owner_user_id` columns on `Agent`, `Skill`, and `MCPServer`. A standalone ownership table would only earn its keep if ownership needed its own history/versioning, which nothing in the brief requires.
 - **EvaluationGateResult as part of EvaluationRunReference** — kept as a separate table rather than JSONB columns on the run reference, specifically so gate results survive a policy edit: a `PromotionRequest` links to the exact `EvaluationGateResult` rows that were computed against the exact `EvaluationPolicy` version live at request time, even if that policy is superseded later.
+- **A separate `AgentVersionStageHistory` log table** — considered alongside `AgentVersionLifecycle`, to record every past transition, not just the current one. Rejected as redundant: `AuditEvent` already records every `agent_version.promoted`/`agent_version.retired`/etc. transition with full context (who, when, why, which evaluation evidence), so a second history table would duplicate data that's already durable and queryable elsewhere, for no new capability. `AgentVersionLifecycle` only needs to answer "what stage is this version in right now," which is a single mutable row, not a log.
 
 ## Diagram: core domain relationships
 
@@ -86,6 +91,7 @@ erDiagram
     TEAM ||--o{ MCPSERVER : owns
 
     AGENT ||--o{ AGENTVERSION : has
+    AGENTVERSION ||--|| AGENTVERSIONLIFECYCLE : "current stage (mutable, 1:1)"
     AGENTVERSION }o--o{ SKILLVERSION : "pins (AgentVersionSkill, immutable)"
     SKILL ||--o{ SKILLVERSION : has
 
@@ -106,7 +112,8 @@ erDiagram
     USER ||--o{ PROMOTIONDECISION : decides
 ```
 
-Summary of the two relationships that are easy to get wrong:
+Summary of the relationships that are easy to get wrong:
 
+- `AgentVersion` → `AgentVersionLifecycle` is **content vs. control-plane state about that content**, deliberately two tables, not one column that would otherwise be the sole exception to an "every column is write-once" rule. See [`agent-versioning.md`](agent-versioning.md#the-stage-vs-content-split).
 - `AgentVersion` → `Skill`/`MCPTool` is **two different relationships with two different mutability rules**: `AgentVersionSkill` (immutable, pinned at creation) vs. `AgentCapabilityGrant` (mutable, revocable at any time).
 - `PromotionRequest` → `EvaluationRunReference` → `EvaluationGateResult` → `EvaluationPolicy` is a chain, not a shortcut: a promotion never reads raw evaluation numbers directly, only gate results that were computed against a specific policy version.

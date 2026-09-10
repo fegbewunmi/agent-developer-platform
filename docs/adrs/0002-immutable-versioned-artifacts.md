@@ -8,7 +8,9 @@ Combined into one ADR because the tradeoff is identical for both entities: repro
 
 ## Decision
 
-`AgentVersion.manifest` and `content_hash` are write-once, enforced at the database level (not just application code) — no UPDATE path exists that can change them. The only mutable field on `AgentVersion` is `stage` (and its transition timestamps). `SkillVersion` follows the same rule: publication is one-way, no edit endpoint. "Fixing" either always means creating a new version, never patching an existing one.
+`AgentVersion` is fully immutable — every column, no exceptions, enforced at the database level by revoking `UPDATE` entirely for the application role (not just an application-level "no edit endpoint" convention, and not a trigger that allow-lists which columns may change). `SkillVersion` follows the same rule: publication is one-way, no edit endpoint. "Fixing" either always means creating a new version, never patching an existing one.
+
+**Amendment (post-Phase-0-review):** the original version of this decision made `stage` an exception — "the only mutable field on `AgentVersion` is `stage`." Review correctly flagged that as a real tension: a table that's immutable except for its single most-frequently-changing field isn't a clean immutability guarantee, it's a guarantee with a built-in escape hatch, and every future reader would need to remember the exception. Resolved by moving `stage` off `AgentVersion` entirely, onto a new table, `AgentVersionLifecycle` (one row per version, holding `stage`/`entered_at`/`entered_by`, updated in place on each transition — see `docs/domain-model.md` and `docs/agent-versioning.md#the-stage-vs-content-split`). `AgentVersion` is now immutable with zero exceptions; lifecycle state is explicitly modeled as separate control-plane metadata *about* an immutable version, not as an attribute of the version itself. This is a genuine model correction, not a rewording — it changes the schema (a new table, a relocated constraint) and is treated as such rather than patched over in place.
 
 ## Alternatives considered
 

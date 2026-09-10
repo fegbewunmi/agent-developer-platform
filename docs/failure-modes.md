@@ -40,7 +40,7 @@ Blocked outright by the freshness checks above — `dataset_snapshot_current` an
 
 ## Two versions attempt to become production concurrently
 
-Prevented at the database level: `UNIQUE (agent_id) WHERE stage = 'production'` partial index, and the promote-and-retire-previous operation runs inside one serializable transaction. The second concurrent transaction's insert/update violates the constraint or fails the serializable check and is rolled back and retried by the API layer against the now-current state — it will observe the first promotion already committed and correctly report "a version is already in production" rather than corrupting state.
+Prevented at the database level: `UNIQUE (agent_id) WHERE stage = 'production'` partial index on `AgentVersionLifecycle` (stage lives on this separate, mutable control-plane table, not on the immutable `AgentVersion` row — see [`agent-versioning.md`](agent-versioning.md#the-stage-vs-content-split)), and the promote-and-retire-previous operation runs inside one serializable transaction updating both the new and previous version's lifecycle rows. The second concurrent transaction's update violates the constraint or fails the serializable check and is rolled back and retried by the API layer against the now-current state — it will observe the first promotion already committed and correctly report "a version is already in production" rather than corrupting state.
 
 ## An audit event cannot be persisted
 
@@ -50,8 +50,9 @@ Cannot happen independently of the state change it describes — `AuditEvent` ro
 
 | Guarantee | Mechanism |
 |---|---|
-| At most one production version per Agent | DB partial unique index + serializable transaction |
+| At most one production version per Agent | DB partial unique index (on `AgentVersionLifecycle`) + serializable transaction |
 | Audit record always exists for a persisted state change | Same-transaction write, no separate audit write path |
 | No lost/overwritten promotion decisions | Conditional update on `status = 'pending'` |
 | No promotion on stale evidence | Live re-check at request time, hard gate, no override |
-| Manifest never silently diverges from what was recorded | DB-level immutability enforcement, no update path |
+| Manifest never silently diverges from what was recorded | `AgentVersion` has no `UPDATE` grant at all — unconditional, not column-scoped |
+| Stage transitions never touch version content | `stage` lives on a separate table (`AgentVersionLifecycle`), never on `AgentVersion` |

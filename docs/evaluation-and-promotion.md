@@ -16,6 +16,17 @@ Inspection of `agent-eval/backend/app/api/runs.py` confirmed `POST /runs` blocks
 
 This is a real limitation in a system this platform depends on but does not own fixing (`agent-eval`'s non-goals here explicitly exclude rebuilding it) — noted as a dependency risk in [`open-questions.md`](open-questions.md), not silently worked around as if it weren't real.
 
+### Prerequisite: agent-eval must actually be reachable from this platform's cloud environment
+
+Everything above describes the **intended, deployed** architecture — a Cloud Run/Cloud Tasks control plane calling a Cloud-Run-hosted `agent-eval` over an authenticated network path. That target state does not exist yet, and Phase 1–2 implementation work does not depend on it existing. Inspection confirmed, and it bears repeating precisely here rather than only in the GCP architecture doc: `agent-eval/infra/` today contains only a `docker-compose.yml` running a bare Postgres container — no Cloud Run service, no Dockerfile for its own backend/frontend, nothing deployed. It runs on a developer's machine, reachable only at `localhost`. It also has no authentication of any kind (`docs/auth-and-approval-model.md`).
+
+This means the Cloud Tasks integration in this section is **not implementable as real cloud-to-cloud traffic** until two things are independently true, neither of which this repo controls unilaterally:
+
+1. **`agent-eval` is deployed** to a reachable environment (Cloud Run, matching this platform's own topology, is the natural choice, but that's `agent-eval`'s decision to make).
+2. **Service-to-service authentication exists between the two platforms** — today neither side has any identity to present or verify, so even a reachable `agent-eval` would be an open, unauthenticated endpoint on the network, which is not an acceptable way to trigger evaluation runs from a production control plane.
+
+These two conditions are an **explicit prerequisite for the phase that implements the real Cloud Tasks → agent-eval integration** (Phase 3, `docs/roadmap.md`), not an assumption baked silently into the architecture. Until both are met, Phase 3's implementation targets a local/dev `agent-eval` instance over an unauthenticated connection — acceptable for development and for proving the integration shape works, explicitly **not** representative of a production-safe deployment, and the phase's own report must say so rather than imply otherwise. See [ADR-0005](adrs/0005-agent-eval-as-external-source-of-truth.md) and [`open-questions.md`](open-questions.md) #4.
+
 ### Diagram: evaluation sequence
 
 ```mermaid
@@ -107,7 +118,7 @@ stateDiagram-v2
 
 ### Only one production version per Agent
 
-Enforced with a database-level partial unique index: `UNIQUE (agent_id) WHERE stage = 'production'`. Promoting a new version to `production` and retiring the previous one happen in a single serializable transaction — see the concurrent-promotion scenario in [`failure-modes.md`](failure-modes.md) for how two simultaneous promotion attempts are resolved.
+Enforced with a database-level partial unique index on the lifecycle table: `UNIQUE (agent_id) WHERE stage = 'production'` on `AgentVersionLifecycle`, not on `AgentVersion` itself — stage lives there, not on the immutable version row (see [`agent-versioning.md`](agent-versioning.md#the-stage-vs-content-split)). Promoting a new version to `production` and retiring the previous one happen in a single serializable transaction, both as `UPDATE`s to `AgentVersionLifecycle` rows — see the concurrent-promotion scenario in [`failure-modes.md`](failure-modes.md) for how two simultaneous promotion attempts are resolved.
 
 ### What a PromotionRequest captures
 
@@ -131,7 +142,7 @@ sequenceDiagram
         Rv->>API: GET /promotions/{id} (review evidence + gate results)
         Rv->>API: POST /promotions/{id}/decision (approve)
         API->>API: reject if decided_by == requested_by
-        API->>API: transaction: set AgentVersion.stage=production,\nretire previous production version,\nwrite PromotionDecision
+        API->>API: transaction: set AgentVersionLifecycle.stage=production,\nretire previous production version's lifecycle row,\nwrite PromotionDecision
         API->>API: publish promotion.approved, agent_version.promoted (Pub/Sub)
         API-->>Rv: 200 OK
     end

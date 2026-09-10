@@ -4,7 +4,7 @@ Status: Accepted
 
 ## Context
 
-The brief requires the platform to handle "a capability is revoked after an AgentVersion was created" as a designed failure mode, not an edge case — which is in direct tension with ADR-0002's immutability guarantee if capability grants were part of the manifest. Inspection of the real Incident Operations MCP server also surfaced a sharp, concrete example of why authorization and approval can't be the same field: `create_ticket`'s confirm-gate is enforced only by the tool's own prompt-convention logic (`ai-operations/mcp_server/server.py`, acknowledged as a known limitation in that codebase's ADR-013), not by the server. A single "this version can use this tool" flag can't represent both "the platform authorized this" and "a human must approve each call," and conflating them would misrepresent what the platform actually guarantees.
+The brief requires the platform to handle "a capability is revoked after an AgentVersion was created" as a designed failure mode, not an edge case — which is in direct tension with ADR-0002's immutability guarantee if capability grants were part of the manifest. Inspection of the real Incident Operations MCP server also surfaced a sharp, concrete example of why authorization and approval can't be the same field. Precisely (see `docs/mcp-governance.md` for the full breakdown): `create_ticket`'s MCP tool function (`ai-operations/mcp_server/server.py`) has a genuine code-level check that blocks the backend call unless `confirm=True`, but nothing verifies that value reflects real human agreement — that part is prompt convention, per the calling model's compliance with the tool's docstring — and the backend `POST /v1/tickets` endpoint (`ai-operations/backend/app/api/v1/tickets.py`) has no confirmation concept at all, so any caller reaching it directly bypasses the gate entirely. `ai-operations`' own ADR-013 reaches the same conclusion. A single "this version can use this tool" flag can't represent both "the platform authorized this" and "a human must approve each call and that approval is actually enforced," and conflating them would misrepresent what the platform actually guarantees.
 
 ## Decision
 
@@ -13,7 +13,7 @@ Two separate concepts: the manifest's `mcp.tools[]` is an immutable, frozen decl
 ## Alternatives considered
 
 - **Fold capability grants into the manifest, versioned like everything else** (revoking means creating a new `AgentVersion`). Rejected — this would force a full new immutable version for a pure security/access change, which is both operationally slow (blocking on a rebuild for a revocation) and semantically wrong (revoking access doesn't change what the version *is*, only what it's *currently allowed to do*).
-- **Treat `requires_approval` as something this platform enforces directly** (e.g. by proxying calls). Rejected per ADR-0001 — the platform doesn't sit in the execution path, and pretending otherwise would misrepresent a real, currently-unenforced gap in `ai-operations`' own MCP server as if it were solved.
+- **Treat `requires_approval` as something this platform enforces directly** (e.g. by proxying calls). Rejected per ADR-0001 — the platform doesn't sit in the execution path, and pretending otherwise would misrepresent two real, currently-unenforced gaps in `ai-operations`' own MCP integration (the docstring-only confirm decision, and the ungated backend endpoint) as if either were solved.
 
 ## Consequences
 

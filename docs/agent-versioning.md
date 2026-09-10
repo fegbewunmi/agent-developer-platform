@@ -2,7 +2,7 @@
 
 ## The core rule
 
-**"Production agent" means a specific immutable `AgentVersion` currently occupying the `production` stage — never a mutable `Agent` object with `status = production`.**
+**"Production agent" means a specific immutable `AgentVersion` whose `AgentVersionLifecycle.stage` is currently `production` — never a mutable `Agent` object with `status = production`, and never a mutable `stage` field living on the immutable version row itself.** See [The stage vs. content split](#the-stage-vs-content-split) below for why lifecycle state is deliberately a separate table.
 
 `Agent` is a name and an owner. `AgentVersion` is everything that determines behavior, frozen at creation. This directly answers the brief's guiding question — "what exact model, prompt/config, skill versions, and MCP tools does it use?" — with a single row lookup instead of reconstructing history from logs, env vars, or someone's memory.
 
@@ -32,9 +32,17 @@ This is exactly the [`agent-manifest.md`](agent-manifest.md) structure, stored a
 
 ## What immutability actually means here
 
-Once `AgentVersion.manifest` is written, no field in it may change. The **only** mutable attribute on the row is `stage` (its position in the lifecycle — see [`evaluation-and-promotion.md`](evaluation-and-promotion.md)), plus the timestamps that record stage transitions (`promoted_at`, `retired_at`). Enforced at the database level (a trigger or check rejecting any `UPDATE` that changes `manifest` or `content_hash`), not just in application code — see [ADR-0002](adrs/0002-immutable-versioned-artifacts.md).
+Once `AgentVersion.manifest` is written, **nothing on the `AgentVersion` row ever changes** — not one field, not a timestamp, nothing. This is stronger than "manifest is frozen, one field is exempt": it's an unconditional rule, enforced at the database level by revoking `UPDATE` entirely for the application role on that table, not by a trigger that allow-lists which columns may change. An unconditional rule is easier to reason about and impossible to accidentally weaken later by adding "just one more" mutable column. See [ADR-0002](adrs/0002-immutable-versioned-artifacts.md).
 
-A consequence worth stating explicitly: **`AgentCapabilityGrant` is not part of this immutability guarantee.** The manifest's `mcp.tools[]` is a frozen declaration of intent; the live grant table is the actual, revocable authorization. A grant can be revoked after the version is created — the manifest stays truthful about what the version *was built for*, while the grant table stays truthful about what it's *currently allowed to do*. See [`mcp-governance.md`](mcp-governance.md) and the capability-revocation scenario in [`failure-modes.md`](failure-modes.md).
+## The stage vs. content split
+
+Lifecycle stage — `draft`/`evaluating`/`candidate`/`production`/`retired` — is genuinely mutable: a version *will* move through these over its life, and that's the entire point of the promotion lifecycle in [`evaluation-and-promotion.md`](evaluation-and-promotion.md). Putting a mutable `stage` column directly on `AgentVersion`, as Phase 0's first draft of this doc did, would have made "immutable" mean "immutable except for the one field that changes the most" — a real tension worth resolving deliberately rather than leaving implicit.
+
+**Resolution: stage is not part of the version's identity at all — it's control-plane metadata *about* the version, tracked in a separate table, `AgentVersionLifecycle`** (`agent_version_id, agent_id, stage, entered_at, entered_by` — one row per `AgentVersion`, updated in place on each transition; full schema in [`domain-model.md`](domain-model.md)). This mirrors a distinction worth naming explicitly: **`AgentVersion` answers "what is this build," and `AgentVersionLifecycle` answers "where is this build allowed to run right now."** The first question has exactly one true answer forever. The second has an answer that legitimately changes.
+
+**Why stage transitions never compromise reproducibility.** Reproducibility is a property of `AgentVersion.manifest` alone — the model, prompt reference, skill pins, and declared MCP tools. None of that is touched by a stage transition; `AgentVersionLifecycle.stage` moving from `candidate` to `production` doesn't read, write, or reference `manifest` at all, it's a different row in a different table pointing at the same immutable `AgentVersion.id`. Two engineers asking "what does `incident-investigator@4.2.0` consist of" at any two points in its life — the moment it was created, or a year after it was retired — get byte-identical answers from `AgentVersion`, regardless of how many times `AgentVersionLifecycle` changed in between. The single-production-version constraint (`UNIQUE (agent_id) WHERE stage='production'`) lives on `AgentVersionLifecycle`, not `AgentVersion`, for the same reason: it's a constraint about current control-plane state, not about content.
+
+A consequence worth stating explicitly: **`AgentCapabilityGrant` follows the identical pattern, one layer over.** The manifest's `mcp.tools[]` is a frozen declaration of intent; the live grant table is the actual, revocable authorization — a second example of "immutable content" and "mutable control-plane state about that content" being deliberately separate tables rather than one row trying to be both. See [`mcp-governance.md`](mcp-governance.md) and the capability-revocation scenario in [`failure-modes.md`](failure-modes.md).
 
 ## SkillVersion applies the same reasoning
 
@@ -42,4 +50,4 @@ A `Skill` (e.g. `telemetry-investigation`) is a name and an owner; a `SkillVersi
 
 ## What creating a new version looks like operationally
 
-Because content is frozen, "fixing" a version is never an edit — it's creating a new `AgentVersion` (e.g. `4.2.1`) that starts back at `draft`. There is no in-place patch path anywhere in the design. This is a deliberate constraint, not an oversight: it's what makes an audit trail (`audit-model.md`) and a promotion history genuinely trustworthy — a given `AgentVersion.id` can never mean two different things at two different times.
+Because content is frozen, "fixing" a version is never an edit — it's creating a new `AgentVersion` (e.g. `4.2.1`) with a fresh `AgentVersionLifecycle` row starting at `draft`. There is no in-place patch path anywhere in the design. This is a deliberate constraint, not an oversight: it's what makes an audit trail (`audit-model.md`) and a promotion history genuinely trustworthy — a given `AgentVersion.id` can never mean two different things at two different times.

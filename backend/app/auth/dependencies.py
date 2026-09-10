@@ -1,6 +1,7 @@
 from functools import lru_cache
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -9,6 +10,15 @@ from app.auth.verify import TokenVerificationError, verify_id_token
 from app.config import settings
 from app.db.session import get_db
 from app.models.identity import User
+
+# auto_error=False so a missing/malformed header falls through to our own
+# 401 below (matching existing behavior/tests) instead of HTTPBearer's
+# default 403. Using the standard HTTPBearer security scheme (rather than a
+# raw Header(...) parameter) also gives /docs a proper global "Authorize"
+# button - found necessary in practice: a generic header text field tripped
+# a real Swagger UI bug in this environment (reproduced in both Safari and
+# Chrome) where a typed value never made it into the actual request.
+_bearer_scheme = HTTPBearer(auto_error=False)
 
 
 @lru_cache
@@ -26,16 +36,16 @@ def get_jwks_provider() -> JWKSProvider:
 
 
 async def get_current_user(
-    authorization: str | None = Header(default=None),
+    credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
     db: AsyncSession = Depends(get_db),
     jwks_provider: JWKSProvider = Depends(get_jwks_provider),
 ) -> User:
-    if not authorization or not authorization.startswith("Bearer "):
+    if credentials is None or not credentials.credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or malformed Authorization header",
         )
-    token = authorization.removeprefix("Bearer ").strip()
+    token = credentials.credentials
 
     try:
         claims = verify_id_token(

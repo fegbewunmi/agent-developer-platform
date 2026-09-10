@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.db.base import Base
+from app.models.types import UTCDateTime
 
 
 class AuditEvent(Base):
@@ -24,5 +25,5 @@ class AuditEvent(Base):
     entity_type: Mapped[str] = mapped_column(String, nullable=False)
     entity_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     actor: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
-    occurred_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    occurred_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
     payload: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")

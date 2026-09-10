@@ -1,7 +1,8 @@
 """Proves the DB-level invariants in docs/adrs/0002-immutable-versioned-artifacts.md,
-docs/audit-model.md, docs/adrs/0009-no-self-approval.md, and docs/failure-modes.md
-are real constraints the application role cannot bypass - not just
-conventions the API happens to enforce. Connects directly as
+docs/audit-model.md, docs/adrs/0009-no-self-approval.md, docs/failure-modes.md,
+and (Phase 2) docs/adrs/0004-mcp-capability-grant-model.md's "at most one
+active grant" rule are real constraints the application role cannot bypass -
+not just conventions the API happens to enforce. Connects directly as
 agent_platform_app (the exact role the running application uses), never as
 the privileged migration role, so a passing test here is proof the
 constraint holds for the actual runtime, not just in principle.
@@ -228,3 +229,41 @@ def test_promotion_decision_by_a_different_user_succeeds(app_conn):
             (uuid.uuid4(), request_id, reviewer_id),
         )
     app_conn.commit()
+
+
+def test_only_one_active_grant_per_version_and_tool(app_conn):
+    """Phase 2: migration 0009's partial unique index on
+    agent_capability_grants(agent_version_id, mcp_tool_id) WHERE revoked_at
+    IS NULL - the DB-level backstop behind the API's 409 in
+    app/services/capability_grants.py::grant_capability.
+    """
+    with app_conn.cursor() as cur:
+        team_id, user_id, agent_id = _make_team_user_agent(cur)
+        version_id = uuid.uuid4()
+        cur.execute(
+            """INSERT INTO agent_versions (id, agent_id, version_label, manifest, content_hash, created_by)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (version_id, agent_id, "1.0.0", "{}", "hash", user_id),
+        )
+        server_id = uuid.uuid4()
+        cur.execute(
+            "INSERT INTO mcp_servers (id, name, environment, owner_team_id, connection_ref) VALUES (%s, %s, %s, %s, %s)",
+            (server_id, f"server-{server_id.hex[:8]}", "development", team_id, "http://127.0.0.1:8080"),
+        )
+        tool_id = uuid.uuid4()
+        cur.execute(
+            "INSERT INTO mcp_tools (id, mcp_server_id, name, classification) VALUES (%s, %s, %s, 'read')",
+            (tool_id, server_id, "search_documents"),
+        )
+        cur.execute(
+            "INSERT INTO agent_capability_grants (id, agent_version_id, mcp_tool_id, granted_by) VALUES (%s, %s, %s, %s)",
+            (uuid.uuid4(), version_id, tool_id, user_id),
+        )
+    app_conn.commit()
+
+    with app_conn.cursor() as cur, pytest.raises(psycopg.errors.UniqueViolation):
+        cur.execute(
+            "INSERT INTO agent_capability_grants (id, agent_version_id, mcp_tool_id, granted_by) VALUES (%s, %s, %s, %s)",
+            (uuid.uuid4(), version_id, tool_id, user_id),
+        )
+    app_conn.rollback()

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db.base import Base
+from app.models.types import UTCDateTime
 from app.models.enums import Stage, pg_enum
 
 _stage_enum = pg_enum(Stage, "stage")
@@ -30,7 +31,7 @@ class Agent(Base):
     team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     is_representative_data: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
 
     versions: Mapped[list["AgentVersion"]] = relationship(back_populates="agent")
 
@@ -55,7 +56,7 @@ class AgentVersion(Base):
     content_hash: Mapped[str] = mapped_column(String, nullable=False)
     source_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
 
     agent: Mapped["Agent"] = relationship(back_populates="versions")
     lifecycle: Mapped["AgentVersionLifecycle"] = relationship(
@@ -83,7 +84,7 @@ class AgentVersionLifecycle(Base):
     )
     agent_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agents.id"), nullable=False)
     stage: Mapped[Stage] = mapped_column(_stage_enum, nullable=False, default=Stage.DRAFT)
-    entered_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    entered_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
     entered_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
 
     agent_version: Mapped["AgentVersion"] = relationship(back_populates="lifecycle")

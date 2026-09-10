@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.db.base import Base
+from app.models.types import UTCDateTime
 from app.models.enums import PromotionDecisionType, PromotionRequestStatus, Stage, pg_enum
 
 _promotion_status_enum = pg_enum(PromotionRequestStatus, "promotion_request_status")
@@ -24,7 +25,7 @@ class PromotionRequest(Base):
     from_stage: Mapped[Stage] = mapped_column(_stage_enum, nullable=False)
     to_stage: Mapped[Stage] = mapped_column(_stage_enum, nullable=False)
     requested_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
-    requested_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
     evaluation_run_reference_id: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("evaluation_run_references.id"), nullable=True
     )
@@ -50,5 +51,5 @@ class PromotionDecision(Base):
     )
     decision: Mapped[PromotionDecisionType] = mapped_column(_promotion_decision_enum, nullable=False)
     decided_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
-    decided_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    decided_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
     comment: Mapped[str | None] = mapped_column(String, nullable=True)

@@ -17,6 +17,7 @@ ADRs for decisions with a real tradeoff - not written mechanically for every top
 | [0011](0011-pubsub-vs-cloud-tasks.md) | Pub/Sub for event fan-out, Cloud Tasks for durable one-shot execution | Accepted |
 | [0012](0012-gcp-deployment-topology.md) | GCP deployment topology matches `ai-operations`' proven pattern | Accepted |
 | [0013](0013-no-first-party-model-usage.md) | No first-party LLM/model usage in the control plane | Accepted |
+| [0014](0014-capability-grant-reproducibility.md) | Capability grant reproducibility: manifest vs. authorization, evaluation-time snapshot deferred to Phase 3 | Accepted |
 
 ## Template
 

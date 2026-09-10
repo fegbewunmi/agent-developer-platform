@@ -6,7 +6,7 @@ This is **not** an agent runtime. It does not execute agents, does not run evalu
 
 ## Status
 
-**Phase 1 complete, pending review.** Core domain schema, real JWT authentication, and the seeded Orion Commerce organization are implemented and verified (47 passing automated tests plus live manual verification) - see [`docs/phase-notes/phase-1.md`](docs/phase-notes/phase-1.md). No CRUD/write endpoints, MCP registry, evaluation integration, or frontend exist yet; that's Phase 2 onward. See [`docs/roadmap.md`](docs/roadmap.md) for the implementation plan and [`docs/open-questions.md`](docs/open-questions.md) for what's still unresolved.
+**Phase 2 complete, pending review.** Core domain schema, real JWT authentication, the seeded Orion Commerce organization, and the agent/version/skill/MCP registries with governed capability grants are implemented and verified (82 passing automated tests plus live manual verification) - see [`docs/phase-notes/phase-2.md`](docs/phase-notes/phase-2.md). No evaluation integration, promotion lifecycle, or frontend exist yet; that's Phase 3 onward. See [`docs/roadmap.md`](docs/roadmap.md) for the implementation plan and [`docs/open-questions.md`](docs/open-questions.md) for what's still unresolved.
 
 ## Why this exists
 
@@ -36,6 +36,7 @@ Where these systems have real gaps (no auth, a synchronous-only evaluation API, 
 | [`docs/agent-manifest.md`](docs/agent-manifest.md) | The reproducible version manifest format |
 | [`docs/skills-and-capabilities.md`](docs/skills-and-capabilities.md) | Skill/SkillVersion model |
 | [`docs/mcp-governance.md`](docs/mcp-governance.md) | MCP registry, capability grants, authorization vs. approval |
+| [`docs/api-reference.md`](docs/api-reference.md) | Endpoint list, required roles, error conventions |
 | [`docs/evaluation-and-promotion.md`](docs/evaluation-and-promotion.md) | Evaluation integration contract, gate model, promotion lifecycle |
 | [`docs/auth-and-approval-model.md`](docs/auth-and-approval-model.md) | Roles, permission matrix, self-approval rule |
 | [`docs/audit-model.md`](docs/audit-model.md) | Audit events, consistency guarantees |

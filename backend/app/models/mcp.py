@@ -8,6 +8,7 @@ from sqlalchemy.sql import func
 
 from app.db.base import Base
 from app.models.enums import MCPClassification, MCPHealthStatus, pg_enum
+from app.models.types import UTCDateTime
 
 _classification_enum = pg_enum(MCPClassification, "mcp_classification")
 _health_enum = pg_enum(MCPHealthStatus, "mcp_health_status")
@@ -26,8 +27,8 @@ class MCPServer(Base):
     health_status: Mapped[MCPHealthStatus] = mapped_column(
         _health_enum, nullable=False, default=MCPHealthStatus.UNKNOWN
     )
-    last_health_check_at: Mapped[datetime | None] = mapped_column(nullable=True)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    last_health_check_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
 
 
 class MCPTool(Base):
@@ -43,7 +44,7 @@ class MCPTool(Base):
     io_schema: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     classification: Mapped[MCPClassification] = mapped_column(_classification_enum, nullable=False)
     requires_approval: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
 
 
 class AgentCapabilityGrant(Base):
@@ -55,6 +56,6 @@ class AgentCapabilityGrant(Base):
     agent_version_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("agent_versions.id"), nullable=False)
     mcp_tool_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("mcp_tools.id"), nullable=False)
     granted_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
-    granted_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    granted_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
     revoked_by: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("users.id"), nullable=True)
-    revoked_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime, nullable=True)

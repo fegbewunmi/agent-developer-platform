@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.sql import func
 
 from app.db.base import Base
+from app.models.types import UTCDateTime
 from app.models.enums import Role, pg_enum
 
 _role_enum = pg_enum(Role, "role")
@@ -34,6 +35,6 @@ class User(Base):
     email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
     role: Mapped[Role] = mapped_column(_role_enum, nullable=False)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
 
     team: Mapped["Team"] = relationship(back_populates="users")

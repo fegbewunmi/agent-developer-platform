@@ -7,6 +7,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
 from app.db.base import Base
+from app.models.types import UTCDateTime
 
 
 class Skill(Base):
@@ -18,7 +19,7 @@ class Skill(Base):
     name: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     owner_team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
 
 
 class SkillVersion(Base):
@@ -40,7 +41,7 @@ class SkillVersion(Base):
     output_contract: Mapped[str | None] = mapped_column(String, nullable=True)
     implementation_ref: Mapped[str | None] = mapped_column(String, nullable=True)
     compatible_frameworks: Mapped[list[str]] = mapped_column(ARRAY(String), nullable=False, server_default="{}")
-    created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
 
 
 class AgentVersionSkill(Base):

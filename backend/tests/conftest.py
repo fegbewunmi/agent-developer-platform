@@ -142,6 +142,54 @@ async def seed_team_and_user(db_session):
 
 
 @pytest_asyncio.fixture
+async def org(db_session):
+    """Two teams, one user per role in the first team (plus a second-team
+    Builder for cross-team permission tests), all committed and ready to
+    authenticate against. Returns a dict of role-name -> User.
+    """
+    team_a = Team(id=uuid.uuid4(), name=f"Team-A-{uuid.uuid4().hex[:8]}", slack_channel=None)
+    team_b = Team(id=uuid.uuid4(), name=f"Team-B-{uuid.uuid4().hex[:8]}", slack_channel=None)
+    db_session.add_all([team_a, team_b])
+    await db_session.flush()
+
+    def _user(role: Role, suffix: str, team_id: uuid.UUID) -> User:
+        return User(
+            id=uuid.uuid4(),
+            name=f"Test {suffix}",
+            email=f"{suffix}@orgtest.example",
+            team_id=team_id,
+            role=role,
+        )
+
+    viewer = _user(Role.VIEWER, "viewer", team_a.id)
+    builder = _user(Role.BUILDER, "builder", team_a.id)
+    reviewer = _user(Role.REVIEWER, "reviewer", team_a.id)
+    admin = _user(Role.ADMIN, "admin", team_a.id)
+    other_team_builder = _user(Role.BUILDER, "other-team-builder", team_b.id)
+    db_session.add_all([viewer, builder, reviewer, admin, other_team_builder])
+    await db_session.flush()
+    await db_session.commit()
+
+    return {
+        "team_a": team_a,
+        "team_b": team_b,
+        "viewer": viewer,
+        "builder": builder,
+        "reviewer": reviewer,
+        "admin": admin,
+        "other_team_builder": other_team_builder,
+    }
+
+
+@pytest.fixture
+def headers_for(sign_token):
+    def _headers(user) -> dict:
+        return {"Authorization": f"Bearer {sign_token(email=user.email)}"}
+
+    return _headers
+
+
+@pytest_asyncio.fixture
 async def client(jwks_provider) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides[get_jwks_provider] = lambda: jwks_provider
     transport = ASGITransport(app=app)

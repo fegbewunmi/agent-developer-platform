@@ -47,9 +47,28 @@ class MCPHealthStatus(str, enum.Enum):
 
 
 class EvaluationRunStatus(str, enum.Enum):
+    """docs/evaluation-and-promotion.md's evaluation sequence:
+    requested (row created, job dispatched) -> dispatched (worker picked it up,
+    calling agent-eval now) -> completed | failed.
+    """
+
     REQUESTED = "requested"
+    DISPATCHED = "dispatched"
     COMPLETED = "completed"
     FAILED = "failed"
+
+
+class StaleReason(str, enum.Enum):
+    """docs/evaluation-and-promotion.md's freshness model - explicit stale reasons,
+    never a single boolean. Stored as plain strings in EvaluationGateResult.evidence_ref
+    / a dedicated freshness-check response, not a DB enum (these are computed at
+    read time, never persisted as a column value)."""
+
+    DATASET_CHANGED = "dataset_changed"
+    EVALUATOR_VERSION_CHANGED = "evaluator_version_changed"
+    POLICY_CHANGED = "policy_changed"
+    CAPABILITY_GRANTS_CHANGED = "capability_grants_changed"
+    MISSING_REQUIRED_EVALUATOR = "missing_required_evaluator"
 
 
 class PromotionRequestStatus(str, enum.Enum):

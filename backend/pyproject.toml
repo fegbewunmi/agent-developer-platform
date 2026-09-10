@@ -23,6 +23,9 @@ dependencies = [
 
     "pyjwt[crypto]>=2.9.0",
     "httpx>=0.28.0",
+
+    "google-auth>=2.35.0",
+    "google-cloud-tasks>=2.16.0",
 ]
 
 [project.optional-dependencies]

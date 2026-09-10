@@ -56,6 +56,30 @@ No `PATCH`/`PUT` route exists anywhere for `AgentVersion`, `SkillVersion`, or an
 | `POST /v1/agent-versions/{version_id}/capability-grants` | Builder (own team) for `read`-classified tools; Reviewer/Admin for `write` or `requires_approval` tools | `409` on an already-active grant for the same `(version, tool)` pair |
 | `POST /v1/capability-grants/{grant_id}/revoke` | Reviewer, Admin | `409` if already revoked |
 
+## Evaluation policies
+
+| Method & path | Auth | Notes |
+|---|---|---|
+| `GET /v1/evaluation-policies` | any authenticated user | |
+| `POST /v1/evaluation-policies` | Admin only | `409` on duplicate `(name, version)`. No edit endpoint - immutable, see [ADR-0015](adrs/0015-evaluation-policy-immutability.md) |
+| `GET /v1/evaluation-policies/{policy_id}` | any authenticated user | |
+
+## Evaluations
+
+| Method & path | Auth | Notes |
+|---|---|---|
+| `POST /v1/agent-versions/{agent_version_id}/evaluations` | Builder (own team), Reviewer, Admin | Body: `{"external_agent_version_id": "...", "idempotency_key": "..." (optional)}`. Returns `202` with `status: "requested"` immediately - the real `agent-eval` call happens asynchronously (see [`evaluation-and-promotion.md`](evaluation-and-promotion.md)). `404` if no `EvaluationPolicy` exists for the agent; `422` if the policy's required dataset/evaluator isn't currently resolvable in `agent-eval`; `409` if the version isn't in `draft`/`evaluating` |
+| `GET /v1/agent-versions/{agent_version_id}/evaluations` | any authenticated user | All `EvaluationRunReference`s for this version, newest first |
+| `GET /v1/evaluations/{reference_id}` | any authenticated user | Status, summary evidence (`dimension_stats`, case counts), `external_run_id` for deeper inspection in `agent-eval` |
+| `GET /v1/evaluations/{reference_id}/gates` | any authenticated user | One row per gate criterion - never a blended score |
+| `GET /v1/agent-versions/{agent_version_id}/candidacy` | any authenticated user | Live-computed: `historically_passed` (permanent fact) vs. `currently_eligible` (computed fresh every call) with explicit `stale_findings[]` - see [`evaluation-and-promotion.md`](evaluation-and-promotion.md#evidence-freshness) |
+
+## Internal (Cloud Tasks push target)
+
+| Method & path | Auth | Notes |
+|---|---|---|
+| `POST /internal/tasks/evaluations/{reference_id}` | none at the application layer - Cloud Run's own IAM authenticates the push in production | Not for direct use; the real Cloud Tasks receiver target (`app/services/job_dispatch.py::CloudTasksDispatcher`). See `docs/gcp-architecture.md` |
+
 ## Error conventions
 
 | Status | Meaning |

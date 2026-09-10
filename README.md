@@ -6,7 +6,7 @@ This is **not** an agent runtime. It does not execute agents, does not run evalu
 
 ## Status
 
-**Phase 2 complete, pending review.** Core domain schema, real JWT authentication, the seeded Orion Commerce organization, and the agent/version/skill/MCP registries with governed capability grants are implemented and verified (82 passing automated tests plus live manual verification) - see [`docs/phase-notes/phase-2.md`](docs/phase-notes/phase-2.md). No evaluation integration, promotion lifecycle, or frontend exist yet; that's Phase 3 onward. See [`docs/roadmap.md`](docs/roadmap.md) for the implementation plan and [`docs/open-questions.md`](docs/open-questions.md) for what's still unresolved.
+**Phase 3 complete through `draft → evaluating → candidate`, pending review.** Core domain schema, real JWT authentication, the seeded Orion Commerce organization, the agent/version/skill/MCP registries with governed capability grants, and the real Agent Evaluation Platform integration (evaluation policies, gate computation, evidence freshness, automated lifecycle transitions) are implemented and verified (146 passing automated tests plus two live demos against a real deployed `agent-eval` Cloud Run service) - see [`docs/phase-notes/phase-3.md`](docs/phase-notes/phase-3.md). `agent-eval` itself was deployed to Cloud Run this phase ([ADR-0016](docs/adrs/0016-agent-eval-deployment-decision.md)). No human promotion approval (`candidate → production`) or frontend exist yet; that's Phase 4 onward. See [`docs/roadmap.md`](docs/roadmap.md) for the implementation plan and [`docs/open-questions.md`](docs/open-questions.md) for what's still unresolved.
 
 ## Why this exists
 

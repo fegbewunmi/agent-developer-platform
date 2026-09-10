@@ -23,21 +23,25 @@ Inspect `ai-operations`, `agent-eval`, `doc-qa`; design domain model, service bo
 - Real HTTP health checks against the live `ai-operations` backend, triggered on demand (a periodic Cloud Scheduler-triggered version of the same call remains the Phase 6 deployment target, not built this phase - see `docs/mcp-governance.md`).
 - **Known gap carried forward to Phase 3:** `agent-manifest.md` says `evaluation.policy` "must resolve to an existing `EvaluationPolicy`," but that registry doesn't exist until Phase 3. Phase 2's manifest validation (`app/services/manifest.py`) only checks the key is present with a non-empty string value - real resolution is Phase 3's job, once `EvaluationPolicy` CRUD exists.
 
-## Phase 3 - Agent Evaluation Platform integration + policy/gates
+## Phase 3 - Agent Evaluation Platform integration + policy/gates *(complete, see `docs/phase-notes/phase-3.md`)*
 
-**Explicit prerequisite, outside this repo's unilateral control:** `agent-eval` must be deployed somewhere reachable from this platform's environment (Cloud Run is the natural target, matching this platform's own topology), and some form of service-to-service authentication must exist between the two - today `agent-eval` has neither (`agent-eval/infra/` is a bare local Postgres `docker-compose.yml`, and neither system authenticates any caller). See [`evaluation-and-promotion.md`](evaluation-and-promotion.md#prerequisite-agent-eval-must-actually-be-reachable-from-this-platforms-cloud-environment). If these aren't in place when Phase 3 starts, Phase 3 proceeds against a local/dev `agent-eval` instance over an unauthenticated connection to prove the integration shape, and the phase report must say so explicitly rather than imply a production-safe integration was demonstrated.
+`agent-eval` was deployed to Cloud Run this phase (`agent-eval-api`, [ADR-0016](adrs/0016-agent-eval-deployment-decision.md)), resolving Phase 0's deferred deployment prerequisite - both real live workflows below ran against it, not a local stand-in.
 
-- `EvaluationPolicy` CRUD (Admin-only).
-- Once `EvaluationPolicy` exists, tighten `app/services/manifest.py` to actually resolve `evaluation.policy` against it, closing the Phase 2 gap noted above.
-- Cloud Tasks worker wrapping `agent-eval`'s synchronous `POST /runs`.
-- `EvaluationRunReference` + `EvaluationGateResult` computation, freshness re-checks.
-- `EvaluationRunReference.capability_grant_snapshot_hash`, per [ADR-0014](adrs/0014-capability-grant-reproducibility.md) - a hash over the active `AgentCapabilityGrant` set at evaluation-request time, mirroring the existing `dataset_snapshot_hash` pattern.
-- First end-to-end call against `agent-eval` for the `incident-investigator` agent - real cloud-to-cloud traffic if the prerequisite above is met by then, otherwise local/dev traffic with that limitation stated plainly in the phase report.
+- `EvaluationPolicy` CRUD (Admin-only), fully immutable at the DB level ([ADR-0015](adrs/0015-evaluation-policy-immutability.md)).
+- `app/services/manifest.py`'s `evaluation.policy` resolution remains a presence-only check (the Phase 2 gap noted here previously) - closing it fully would mean validating against a *specific* policy version at manifest-creation time, which conflicts with policies being resolved by *name* (always "current for this agent") rather than pinned per-version; left as-is deliberately, not revisited this phase.
+- Async dispatch implemented via two `JobDispatcher` implementations - `LocalSyncDispatcher` (used throughout this phase's tests and live demos) and a real `CloudTasksDispatcher` (proven to create/enqueue genuine tasks against a real queue; delivery-to-a-live-receiver unexercised until this platform's own API is deployed - Phase 6). See [`evaluation-and-promotion.md`](evaluation-and-promotion.md#async-dispatch-whats-real-and-what-isnt).
+- `EvaluationRunReference` + `EvaluationGateResult` computation (11 gate types across 6 gate categories), freshness re-checks with explicit stale reasons.
+- `EvaluationRunReference.capability_grant_snapshot_hash`, per [ADR-0014](adrs/0014-capability-grant-reproducibility.md) - implemented, and live-verified as a real trigger for both a mid-run consistency gate and a post-pass freshness finding.
+- `draft → evaluating → candidate` lifecycle automation, live-verified against the real `incident-investigator` agent: a real ~4-minute evaluation on the deployed `agent-eval-api`, 11/11 gates passed, real `candidate` transition.
+- **Known, named gap carried forward**: `dataset_case_set_fingerprint` (the dataset-freshness proxy) cannot detect a dataset case's content changing in place - only structural changes (added/removed/renamed/re-tagged cases) - because `agent-eval`'s real API never exposes case content outside of a run response. See `docs/open-questions.md`.
 
 ## Phase 4 - Promotion lifecycle, approvals, audit trail
 
-- Full state machine from `evaluation-and-promotion.md`, `PromotionRequest`/`PromotionDecision`, self-approval rejection, concurrent-promotion handling.
-- Transactional `AuditEvent` writes + Pub/Sub outbox publication.
+`PromotionRequest`/`PromotionDecision` tables and the no-self-approval DB trigger already exist and are unit-tested (Phase 1) - Phase 4 builds the service/API layer that actually uses them, which doesn't exist yet.
+
+- `candidate → production` request/decision service and API, built on top of Phase 3's `check_freshness` (a `PromotionRequest` should be rejected outright, per [ADR-0008](adrs/0008-automated-gates-vs-human-approval.md), if `currently_eligible` is false at request time - this is the natural place Phase 3's freshness work plugs in).
+- Concurrent-promotion handling exercising the DB constraint that's been in place since Phase 1.
+- Pub/Sub outbox publication (not yet built - Phase 1-3 audit events are transactionally correct but only readable via direct query, never fanned out).
 - Rollback path (`retired → production` via a normal `PromotionRequest`).
 
 ## Phase 5 - Frontend / product workflows

@@ -18,6 +18,9 @@ ADRs for decisions with a real tradeoff - not written mechanically for every top
 | [0012](0012-gcp-deployment-topology.md) | GCP deployment topology matches `ai-operations`' proven pattern | Accepted |
 | [0013](0013-no-first-party-model-usage.md) | No first-party LLM/model usage in the control plane | Accepted |
 | [0014](0014-capability-grant-reproducibility.md) | Capability grant reproducibility: manifest vs. authorization, evaluation-time snapshot deferred to Phase 3 | Accepted |
+| [0015](0015-evaluation-policy-immutability.md) | EvaluationPolicy is fully immutable, matching AgentVersion and SkillVersion | Accepted |
+| [0016](0016-agent-eval-deployment-decision.md) | Deploy Agent Evaluation Platform to Cloud Run now, as an independently owned service | Accepted |
+| [0017](0017-shared-cloud-sql-instance-isolated-database.md) | agent-eval shares ai-operations' Cloud SQL instance, in an isolated database | Accepted |
 
 ## Template
 

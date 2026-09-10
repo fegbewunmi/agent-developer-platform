@@ -1,31 +1,33 @@
 # Evaluation Integration and Promotion Lifecycle
 
+**Status: Phase 3 implemented and live-verified through `draft → evaluating → candidate`. `candidate → production` (human approval) is Phase 4 - not built yet.**
+
 ## The integration contract with Agent Evaluation Platform
 
-`agent-eval` remains the only place evaluators execute, datasets live, and regressions are computed. This platform never re-implements any of that (see [`control-plane-boundaries.md`](control-plane-boundaries.md)). It integrates against `agent-eval`'s real, inspected API:
+`agent-eval` remains the only place evaluators execute, datasets live, and regressions are computed. This platform never re-implements any of that (see [`control-plane-boundaries.md`](control-plane-boundaries.md)). It integrates against `agent-eval`'s real, re-inspected API, implemented in `app/integrations/agent_eval_client.py`:
 
-- **Trigger**: `POST /runs` on `agent-eval`, with `agent_version_id`, `dataset_id`, `evaluator_ids[]`.
-- **Read results**: `GET /runs/{run_id}` → `dimension_stats[]` (mean score, pass/fail counts per dimension); `GET /runs/compare?run_a_id&run_b_id` → `regressions[]`/`improvements[]`, `evaluator_version_mismatches[]`, `dataset_drift_detected`.
-- **Case-level detail**: `GET /runs/{run_id}/cases/{case_run_id}` - this platform links out to it for humans; it never stores case-level data itself.
+- **Trigger**: `POST /runs` with `agent_version_id`, `dataset_id`, `evaluator_ids[]`, `triggered_by`, `timeout_seconds` → `RunSummaryResponse` (`dimension_stats[]`, `case_runs[]`, `dataset_snapshot_hash`, `status`).
+- **Re-fetch a run**: `GET /runs/{run_id}` (same shape), with an optional `?tag=` filter used by the `zero_failures_for_tag` gate.
+- **Compare two runs**: `GET /runs/compare?run_a_id&run_b_id` → `regressions[]`/`improvements[]` (per case/dimension `passed` transitions), `evaluator_version_mismatches[]`, `dataset_drift_detected` - used for the `max_new_regressions` gate.
+- **Catalog reads**: `GET /evaluators`, `GET /datasets`, `GET /datasets/{id}` (the latter includes each case's `id`/`key`/`tags`, but never its `input`/`expected` content - see "The dataset-fingerprint limitation" below).
+- **Case-level detail**: `GET /runs/{run_id}/cases/{case_run_id}` exists on `agent-eval` but this platform never calls it - only summary evidence (`dimension_stats`, case-completion counts) is stored locally; deep inspection stays a link-out to `agent-eval` for humans.
+
+`agent-eval` is now deployed to Cloud Run (`agent-eval-api`, IAM-authenticated) - see [ADR-0016](adrs/0016-agent-eval-deployment-decision.md) and [`gcp-architecture.md`](gcp-architecture.md). `HttpAgentEvalClient` sends no `Authorization` header at all against an unauthenticated local instance, and a real Google-signed ID token (`google.oauth2.id_token`/`google.auth.impersonated_credentials`) against the deployed one - live-verified both ways (`docs/phase-notes/phase-3.md`).
 
 ### The problem this contract has to work around: `POST /runs` is synchronous
 
-Inspection of `agent-eval/backend/app/api/runs.py` confirmed `POST /runs` blocks in-request until the entire run completes - there is no async job/status-polling pattern (an explicit MVP choice in `agent-eval`'s own ADR-0005). `ai-operations`' own eval runner comments note real per-case latency of 60–75 seconds; a full dataset run can run many minutes. This platform's control-plane API must never make this call synchronously from a user-facing request handler - doing so would tie up an API worker and a browser request for the full run duration.
+Confirmed still true against the real deployed service: a 3-case `incident-investigator` run took ~3.5–4 minutes end to end (real LangGraph + Vertex AI Gemini calls). This platform's API layer must never make this call synchronously from a user-facing request handler.
 
-**Resolution**: the platform never calls `POST /runs` directly from the API layer. Requesting an evaluation creates an `EvaluationRunReference(status='requested')` row and enqueues a **Cloud Tasks** job. A worker executes the (still-blocking) `POST /runs` call out-of-band, then writes the response back onto the `EvaluationRunReference` (`external_run_id`, `dataset_snapshot_hash`, `evaluator_versions`, `status='completed'`) and computes `EvaluationGateResult`s. See [`gcp-architecture.md`](gcp-architecture.md) and [ADR-0005](adrs/0005-agent-eval-as-external-source-of-truth.md).
+**Resolution, as actually implemented**: `POST /v1/agent-versions/{id}/evaluations` (`app/api/evaluations.py`) does none of the slow work itself - it resolves the dataset/evaluator identities (fast, local-catalog lookups), creates `EvaluationRunReference(status='requested')`, transitions the version to `evaluating`, and returns `202` immediately. The actual `POST /runs` call happens in `app/services/evaluation_worker.py::process_evaluation_job`, dispatched via `app/services/job_dispatch.py`. See "Async dispatch: what's real and what isn't" below for exactly which half of this is production-shaped and which half is a documented test/dev stand-in.
 
-This is a real limitation in a system this platform depends on but does not own fixing (`agent-eval`'s non-goals here explicitly exclude rebuilding it) - noted as a dependency risk in [`open-questions.md`](open-questions.md), not silently worked around as if it weren't real.
+### Async dispatch: what's real and what isn't
 
-### Prerequisite: agent-eval must actually be reachable from this platform's cloud environment
+Two implementations of the same `JobDispatcher` interface exist, and this phase used both for different purposes - conflating them would be exactly the "do not pretend a local in-process call is Cloud Tasks" mistake the brief warned against:
 
-Everything above describes the **intended, deployed** architecture - a Cloud Run/Cloud Tasks control plane calling a Cloud-Run-hosted `agent-eval` over an authenticated network path. That target state does not exist yet, and Phase 1–2 implementation work does not depend on it existing. Inspection confirmed, and it bears repeating precisely here rather than only in the GCP architecture doc: `agent-eval/infra/` today contains only a `docker-compose.yml` running a bare Postgres container - no Cloud Run service, no Dockerfile for its own backend/frontend, nothing deployed. It runs on a developer's machine, reachable only at `localhost`. It also has no authentication of any kind (`docs/auth-and-approval-model.md`).
+- **`LocalSyncDispatcher`** (`app/services/job_dispatch.py`) - fires the worker via `asyncio.create_task`, non-blocking but **not durable**: no retry on failure, no persistence across a process restart, no delivery guarantee. This is what every automated test and both live demos this phase actually ran against (`docs/phase-notes/phase-3.md`).
+- **`CloudTasksDispatcher`** - the real production implementation, using `google-cloud-tasks` to create a genuine HTTP task targeting `POST /internal/tasks/evaluations/{id}` (`app/api/tasks.py`), OIDC-authenticated the same way Cloud Tasks → Cloud Run push auth normally works. Live-verified this phase as far as **task creation** goes: a real queue (`evaluation-jobs`, `us-central1`) was created, a real task was enqueued, and `gcloud tasks list` independently confirmed Cloud Tasks made real delivery attempts (and correctly retried) against a deliberately-unreachable placeholder target. **Not** verified as far as delivery-to-a-live-receiver, because that receiver is this platform's own API, which isn't deployed to Cloud Run yet (Phase 6, `docs/roadmap.md`). This is a real, current, named gap - not a historical one.
 
-This means the Cloud Tasks integration in this section is **not implementable as real cloud-to-cloud traffic** until two things are independently true, neither of which this repo controls unilaterally:
-
-1. **`agent-eval` is deployed** to a reachable environment (Cloud Run, matching this platform's own topology, is the natural choice, but that's `agent-eval`'s decision to make).
-2. **Service-to-service authentication exists between the two platforms** - today neither side has any identity to present or verify, so even a reachable `agent-eval` would be an open, unauthenticated endpoint on the network, which is not an acceptable way to trigger evaluation runs from a production control plane.
-
-These two conditions are an **explicit prerequisite for the phase that implements the real Cloud Tasks → agent-eval integration** (Phase 3, `docs/roadmap.md`), not an assumption baked silently into the architecture. Until both are met, Phase 3's implementation targets a local/dev `agent-eval` instance over an unauthenticated connection - acceptable for development and for proving the integration shape works, explicitly **not** representative of a production-safe deployment, and the phase's own report must say so rather than imply otherwise. See [ADR-0005](adrs/0005-agent-eval-as-external-source-of-truth.md) and [`open-questions.md`](open-questions.md) #4.
+`app/dependencies.py::get_job_dispatcher` selects between them via `settings.job_dispatch_mode` (`"local"` default, `"cloud_tasks"` when configured with a real queue/target).
 
 ### Diagram: evaluation sequence
 
@@ -33,52 +35,68 @@ These two conditions are an **explicit prerequisite for the phase that implement
 sequenceDiagram
     participant B as Builder
     participant API as Developer Platform API
-    participant CT as Cloud Tasks
+    participant D as JobDispatcher (local or Cloud Tasks)
+    participant W as Evaluation Worker
     participant AE as Agent Evaluation Platform
 
-    B->>API: Request evaluation for AgentVersion
-    API->>API: create EvaluationRunReference(status=requested)
-    API->>CT: enqueue run-evaluation task
+    B->>API: POST .../evaluations {external_agent_version_id}
+    API->>API: resolve dataset_id/evaluator_ids from current EvaluationPolicy
+    API->>API: create EvaluationRunReference(status=requested)\n+ capability_grant_snapshot_hash
+    API->>API: stage: draft/evaluating -> evaluating
     API-->>B: 202 Accepted (reference id)
-    CT->>AE: POST /runs (agent_version_id, dataset_id, evaluator_ids)
-    Note over AE: blocks for full run duration (agent-eval ADR-0005)
-    AE-->>CT: RunSummaryResponse (dimension_stats, status=completed)
-    CT->>API: write back external_run_id, dataset_snapshot_hash,\nevaluator_versions, status=completed
-    API->>API: compute EvaluationGateResult[] against EvaluationPolicy
-    API->>API: publish evaluation.completed (Pub/Sub)
-    B->>API: view results
-    API->>AE: GET /runs/{id}/cases/{case_id} (link-out for detail)
+    API->>D: dispatch_evaluation_job(reference_id)
+    D->>W: process_evaluation_job(reference_id)
+    W->>W: claim reference (status requested -> dispatched, atomic)
+    W->>AE: POST /runs (agent_version_id, dataset_id, evaluator_ids)
+    Note over AE: blocks for full run duration (confirmed live: ~4 min for a 3-case real run)
+    AE-->>W: RunSummaryResponse (dimension_stats, status=completed)
+    W->>W: take completion-time capability snapshot
+    W->>AE: GET /datasets/{id} (case set fingerprint)
+    W->>AE: GET /runs/compare (if a production baseline exists)
+    W->>W: compute EvaluationGateResult[] against the policy pinned at request time
+    W->>W: stage: evaluating -> candidate (all gates pass) or draft (any gate fails)
+    W->>W: write evaluation.completed + (if candidate) agent_version.became_candidate audit events
+    B->>API: GET .../evaluations/{id}, GET .../gates
+    API->>AE: (human, out of band) deeper case inspection via agent-eval's own UI/API
 ```
 
 ## The evaluation policy / gate model
 
-`agent-eval` has **no policy or gate concept at all** - confirmed by inspection: no `Policy`/`Gate`/`ThresholdSet` entity, thresholds live only as opaque per-evaluator `config` JSONB, and `GET /runs/compare` is explicitly informational, consumed by nothing. Gating is entirely this platform's responsibility to build, which is exactly the gap the brief identifies (*"do not collapse evaluation results into one opaque quality score"*).
+`agent-eval` has **no policy or gate concept at all** - reconfirmed against the deployed service in Phase 3: no `Policy`/`Gate`/`ThresholdSet` entity, `GET /runs/compare` remains informational. Gating is entirely this platform's responsibility (`app/services/gates.py`), computed once per completed run and persisted as one `EvaluationGateResult` row per criterion - never a blended score.
 
-`EvaluationPolicy` (versioned, immutable per `(name, version)` - same pattern as `agent-eval`'s own `Evaluator` versioning):
+`EvaluationPolicy` is **fully immutable** as of Phase 3 (DB-level `UPDATE`/`DELETE` revoked, matching `AgentVersion`/`SkillVersion` - [ADR-0015](adrs/0015-evaluation-policy-immutability.md)):
 
-- `required_evaluator_keys[]` - which evaluators must have run
-- `thresholds` - e.g. `{"grounding": {"min_mean": 0.85}, "task_correctness": {"min_mean": 0.90}}`
-- `zero_new_regressions: true` - compares against the current `production` version's most recent evaluation for the same `Agent`
-- `dataset_key` - which dataset this policy expects
+- `thresholds` - `{"<dimension>": {"min_mean": <float>}, ...}` - one `min_dimension_score` gate per entry.
+- `required_evaluator_keys` - `{"<evaluator_key>": "<required_version>", ...}` - one `required_evaluator_version` gate per entry, checked against what was *actually submitted* to `agent-eval` at request time (not re-fetched live - that's freshness's job, below).
+- `max_new_regressions` (int, default `0`) - one `max_new_regressions` gate, comparing against the current production version's most recent completed evaluation on the same dataset. **Trivially passes** with no baseline if no production version exists yet for the agent - confirmed both in tests and live (Phase 3's real `incident-investigator` demo had no baseline and passed this gate with reason "no production baseline evaluation exists yet").
+- `zero_failure_tags` (list of case tags) - one `zero_failures_for_tag` gate per tag, `0` rows if the list is empty (no criterion configured, no gate to check).
+- `min_completion_rate` (default `1.0`) - one `min_completion_rate` gate, computed from `case_runs[].status`.
+- **`capability_snapshot_consistency`** (always computed, not policy-configurable) - compares the capability-grant snapshot hash taken at evaluation-*request* time against a fresh one taken at *completion* time, catching "capability grants changed while evaluation was running" ([`failure-modes.md`](failure-modes.md)). Live-verified as a real failure trigger in `tests/test_evaluation_worker.py`.
+- `dataset_key` - resolves to a real `agent-eval` dataset by name at request time; not itself a gate, but the input to the dataset-identity freshness check below.
 
-At promotion-request time (not run-request time - see freshness below), the platform computes one `EvaluationGateResult` row per criterion:
+A version becomes `candidate` only if **every** gate for that run passed - `all(g.passed for g in computed_gates)`, computed once, right when the run completes (`app/services/evaluation_worker.py::_persist_success`). Gates are **hard blockers with no override**, per [ADR-0008](adrs/0008-automated-gates-vs-human-approval.md) - unchanged in Phase 3.
 
-| Criterion example | Expected | Actual (from agent-eval) | Passed |
-|---|---|---|---|
-| `grounding >= 0.85` | 0.85 | 0.91 | true |
-| `zero_new_regressions` | 0 | 0 | true |
-| `evaluator_versions_match_policy` | matches policy | 1 mismatch found | **false** |
-| `dataset_snapshot_current` | current hash | stale | **false** |
-
-A `PromotionRequest` cannot reach `candidate`/`production` if any gate fails. Gates are **hard blockers with no override** in this MVP - see [ADR-0008](adrs/0008-automated-gates-vs-human-approval.md) for why an emergency-override path was deliberately deferred rather than built speculatively.
+**Live-verified, real example** (`docs/phase-notes/phase-3.md`): `incident-investigator`'s first real policy (`v1`) required an evaluator (`final_output_contains_keywords`) that turned out to produce no applicable score for the real dataset's case shape - a genuine `min_dimension_score` gate failure, not a bug, correctly blocking `candidate`. Because policies are immutable, the fix was publishing `v2` with a corrected `required_evaluator_keys`, not editing `v1` - and re-running against it produced 11/11 passing gates and a real `candidate` transition.
 
 ## Evidence freshness
 
-Freshness is re-checked **live, at promotion-request time**, not frozen at evaluation-run time - because the run itself might be minutes or days old by the time promotion is requested, and both the dataset and the evaluator catalog in `agent-eval` are mutable:
+`app/services/freshness.py::check_freshness` draws the exact distinction the brief calls for: **"evaluation passed at the time"** (a permanent historical fact - `EvaluationGateResult.passed`, never recomputed) vs. **"evidence is still valid for promotion now"** (computed live, every call, never stored). A version can be `stage=candidate` while `currently_eligible=false`.
 
-- Dataset: re-fetch `agent-eval`'s current dataset snapshot hash and compare to the one recorded on the `EvaluationRunReference`. Mismatch → `dataset_snapshot_current` gate fails.
-- Evaluators: re-fetch `GET /evaluators`, compare versions to what's recorded. Mismatch → `evaluator_versions_match_policy` gate fails.
-- Policy: gates are always computed against whichever `EvaluationPolicy` is current for the `Agent` at promotion-request time - if the policy changed since the evaluation ran, the run is simply re-graded against the new policy, and likely fails a threshold it used to pass. The `EvaluationPolicy.id` used is recorded on the `PromotionRequest` for audit, so "which policy actually gated this" is always answerable even after the policy is superseded.
+Computed live against the most recent evaluation run whose gates all passed:
+
+| Stale reason | How it's detected | Precision |
+|---|---|---|
+| `capability_grants_changed` | Re-take the capability-grant snapshot now; compare hash to the one stored on the passing run reference | Exact - this platform's own data |
+| `evaluator_version_changed` | Re-fetch `GET /evaluators` now; compare each required evaluator's current version to what was recorded at request time | Exact - live catalog read |
+| `missing_required_evaluator` | A required evaluator key no longer exists in the live catalog at all | Exact |
+| `policy_changed` | Compare the passing run's `evaluation_policy_id` to whatever `get_current_policy_for_agent` resolves to now | Exact - this platform's own data |
+| `dataset_changed` | See "The dataset-fingerprint limitation" below | **Approximate, and named as such** |
+
+### The dataset-fingerprint limitation
+
+A real, load-bearing finding from Phase 3 implementation, not a hypothetical: `GET /datasets/{id}` (agent-eval's real, re-confirmed schema) returns each case's `id`/`key`/`tags` only - **never** its `input`/`expected` content, which is what agent-eval's own `dataset_snapshot_hash` is actually computed over, server-side, only as part of a `RunSummaryResponse`. There is no standalone "give me the current dataset hash" endpoint. Reconstructing agent-eval's exact hash client-side would mean reimplementing its dataset-hashing logic, which the Phase 3 brief explicitly forbids ("do not reimplement... dataset logic").
+
+The honest resolution: `dataset_case_set_fingerprint` (`app/services/freshness.py`) is a **distinctly-named, deliberately weaker** platform-computed proxy - a hash over sorted `{key, tags}` pairs. It reliably catches cases added, removed, renamed, or re-tagged. It **cannot** detect a case's `input`/`expected` content changing while its key stays the same. This limitation is stated everywhere the fingerprint is used (code comments, this doc, `docs/failure-modes.md`, `docs/open-questions.md`) - never presented as equivalent to agent-eval's own hash. Tracked as a named ask for `agent-eval` to expose a real current-hash endpoint (`docs/open-questions.md`).
 
 See the full enumeration of stale-evidence and unavailable-dependency scenarios in [`failure-modes.md`](failure-modes.md).
 
@@ -88,62 +106,47 @@ See the full enumeration of stale-evidence and unavailable-dependency scenarios 
 draft → evaluating → candidate → production → retired
 ```
 
+**Implemented through `candidate` this phase.** `candidate → production` (human `PromotionRequest`/`PromotionDecision` approval) is Phase 4 scope - the tables and no-self-approval DB trigger already exist (Phase 1), but no request/decision service or API exists yet.
+
 ### Diagram: promotion state machine
 
 ```mermaid
 stateDiagram-v2
     [*] --> draft: AgentVersion created
-    draft --> evaluating: Builder requests evaluation run
-    evaluating --> evaluating: re-run requested\n(e.g. after infra flakiness)
-    evaluating --> candidate: automated - all gates pass
-    evaluating --> draft: automated - gate(s) fail\n(fix requires a new AgentVersion,\nnot editing this one)
-    candidate --> production: PromotionRequest approved\n(Reviewer/Admin, not requester)
-    candidate --> retired: abandoned
-    draft --> retired: abandoned
-    production --> retired: automatic on supersession,\nor manual retirement
-    retired --> production: rollback = a new PromotionRequest\nfor this old immutable version
+    draft --> evaluating: evaluation requested (implemented)
+    evaluating --> evaluating: re-run requested\n(e.g. after infra flakiness) (implemented)
+    evaluating --> candidate: automated - all gates pass (implemented, live-verified)
+    evaluating --> draft: automated - gate(s) fail,\nor agent-eval unavailable/timeout/malformed response\n(implemented, live-verified: real gate failure observed)
+    candidate --> production: PromotionRequest approved\n(Reviewer/Admin, not requester) - PHASE 4, NOT BUILT
+    candidate --> retired: abandoned - PHASE 4
+    draft --> retired: abandoned - PHASE 4
+    production --> retired: automatic on supersession,\nor manual retirement - PHASE 4
+    retired --> production: rollback = a new PromotionRequest\nfor this old immutable version - PHASE 4
 ```
 
 ### Legal transitions and who can request them
 
-| Transition | Trigger | Who can request | Evidence required |
-|---|---|---|---|
-| `draft → evaluating` | Request an evaluation run | Builder, Reviewer, Admin | none |
-| `evaluating → candidate` | Automated | System (gate evaluator) | all `EvaluationGateResult`s pass |
-| `evaluating → draft` | Automated | System | any gate fails |
-| `candidate → production` | `PromotionRequest` approved | Requested by Builder/Reviewer/Admin; approved by Reviewer/Admin **who is not the requester** | fresh, passing gate results cited on the request |
-| `candidate → retired` | Abandon | Builder (own team), Reviewer, Admin | none |
-| `production → retired` | Retire or superseded | Admin, Reviewer (manual); automatic on a new promotion to `production` for the same `Agent` | none |
-| `retired → production` | Rollback | Same as `candidate → production` - a rollback **is** a `PromotionRequest`, not a special transition | see [`open-questions.md`](open-questions.md) on whether freshness rules relax for rollback |
+| Transition | Trigger | Who can request | Evidence required | Status |
+|---|---|---|---|---|
+| `draft/evaluating → evaluating` | Request an evaluation | Builder (own team), Reviewer, Admin | none | Implemented, live-verified |
+| `evaluating → candidate` | Automated | System (gate evaluator) | all `EvaluationGateResult`s pass | Implemented, live-verified |
+| `evaluating → draft` | Automated | System | any gate fails, or agent-eval call fails | Implemented, live-verified |
+| `candidate → production` | `PromotionRequest` approved | Requested by Builder/Reviewer/Admin; approved by Reviewer/Admin **who is not the requester** | fresh, passing gate results cited on the request | **Phase 4** |
+| `candidate → retired` | Abandon | Builder (own team), Reviewer, Admin | none | **Phase 4** |
+| `production → retired` | Retire or superseded | Admin, Reviewer (manual); automatic on a new promotion | none | **Phase 4** |
+| `retired → production` | Rollback | Same as `candidate → production` | see [`open-questions.md`](open-questions.md) | **Phase 4** |
+
+`candidate/production/retired` versions cannot have a new evaluation requested against them (`app/services/evaluations.py::_REQUESTABLE_STAGES = {DRAFT, EVALUATING}`) - live and test-verified to return `409`. A version stuck in `candidate` that later needs re-validation goes through the ordinary route: a new `AgentVersion`.
 
 ### Only one production version per Agent
 
-Enforced with a database-level partial unique index on the lifecycle table: `UNIQUE (agent_id) WHERE stage = 'production'` on `AgentVersionLifecycle`, not on `AgentVersion` itself - stage lives there, not on the immutable version row (see [`agent-versioning.md`](agent-versioning.md#the-stage-vs-content-split)). Promoting a new version to `production` and retiring the previous one happen in a single serializable transaction, both as `UPDATE`s to `AgentVersionLifecycle` rows - see the concurrent-promotion scenario in [`failure-modes.md`](failure-modes.md) for how two simultaneous promotion attempts are resolved.
+Unchanged from Phase 1/2: `UNIQUE (agent_id) WHERE stage = 'production'` on `AgentVersionLifecycle`. Not yet exercised end-to-end in Phase 3 since nothing reaches `production` until Phase 4.
 
-### What a PromotionRequest captures
+## Live verification summary
 
-`agent_version_id, from_stage, to_stage, requested_by, requested_at, evaluation_run_reference_id, status, reason`, resolved by exactly one `PromotionDecision(decision, decided_by, decided_at, comment)`. Together these make "why did this version reach production" answerable from the `PromotionRequest`/`PromotionDecision`/`EvaluationGateResult`/`EvaluationPolicy` chain alone, without needing to reconstruct anything from `agent-eval` after the fact (though the link to `agent-eval`'s detailed run view is preserved for anyone who wants to go deeper).
+Both required Phase 3 workflows were run against the real deployed `agent-eval-api` Cloud Run service, not a local stand-in - full transcript in [`docs/phase-notes/phase-3.md`](phase-notes/phase-3.md):
 
-### Diagram: promotion sequence
+1. **Passing flow**: the real `incident-investigator@4.2.0` AgentVersion → real evaluation request → real ~4-minute `agent-eval` execution (LangGraph + Vertex AI Gemini) → 11/11 gates computed and passed → `stage: candidate`, `currently_eligible: true`.
+2. **Stale/blocked flow**: revoked a real `AgentCapabilityGrant` on that same candidate version → the historical evaluation run's gates remain unchanged (`all_passed: true`) and `stage` remains `candidate` → but `GET .../candidacy` now reports `currently_eligible: false` with an explicit `capability_grants_changed` stale finding, including the before/after hash.
 
-```mermaid
-sequenceDiagram
-    participant Bu as Builder
-    participant API as Developer Platform API
-    participant Rv as Reviewer
-
-    Bu->>API: POST /promotions (agent_version_id, to_stage=production)
-    API->>API: re-check evidence freshness (dataset hash, evaluator versions)
-    alt gates fail or evidence stale
-        API-->>Bu: 409 - blocked, with explicit reasons per failed criterion
-    else gates pass
-        API->>API: create PromotionRequest(status=pending)
-        API-->>Bu: 201 Accepted
-        Rv->>API: GET /promotions/{id} (review evidence + gate results)
-        Rv->>API: POST /promotions/{id}/decision (approve)
-        API->>API: reject if decided_by == requested_by
-        API->>API: transaction: set AgentVersionLifecycle.stage=production,\nretire previous production version's lifecycle row,\nwrite PromotionDecision
-        API->>API: publish promotion.approved, agent_version.promoted (Pub/Sub)
-        API-->>Rv: 200 OK
-    end
-```
+This is the "major architectural proof point" the brief called for, observed live rather than only reasoned about.

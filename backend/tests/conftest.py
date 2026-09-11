@@ -105,7 +105,7 @@ def _reset_database():
         cur.execute(
             """
             TRUNCATE TABLE
-                audit_events, promotion_decisions, promotion_requests,
+                audit_events, outbox_events, promotion_decisions, promotion_requests,
                 evaluation_gate_results, evaluation_run_references, evaluation_policies,
                 agent_capability_grants, mcp_tools, mcp_servers,
                 agent_version_skills, skill_versions, skills,

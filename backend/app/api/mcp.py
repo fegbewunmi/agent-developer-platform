@@ -32,6 +32,10 @@ class RegisterToolRequest(BaseModel):
     requires_approval: bool = False
 
 
+class UpdateServerConnectionRequest(BaseModel):
+    connection_ref: str
+
+
 def _server_to_dict(server) -> dict:
     return {
         "id": str(server.id),
@@ -96,6 +100,22 @@ async def get_server(
     server_id: uuid.UUID, _user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> dict:
     return _server_to_dict(await mcp_service.get_mcp_server(db, server_id))
+
+
+@router.patch("/{server_id}/connection")
+async def update_server_connection(
+    server_id: uuid.UUID,
+    body: UpdateServerConnectionRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> dict:
+    """Admin-only, same authorization as registration - see
+    app/services/mcp.py::update_mcp_server_connection.
+    """
+    server = await mcp_service.update_mcp_server_connection(
+        db, actor=user, server_id=server_id, connection_ref=body.connection_ref
+    )
+    return _server_to_dict(server)
 
 
 @router.post("/{server_id}/health-check")

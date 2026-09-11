@@ -1,6 +1,6 @@
 # Repo Structure
 
-Matches the sibling projects' shape (`ai-operations`, `agent-eval`) so contributors moving between repos find familiar structure. As of Phase 5, everything except `infra/` is real, not planned.
+Matches the sibling projects' shape (`ai-operations`, `agent-eval`) so contributors moving between repos find familiar structure. As of Phase 6, everything in this tree is real, deployed, and live-verified - there is no separate `infra/` directory; deployment is driven directly via `gcloud`/Cloud Build commands (documented in `docs/gcp-architecture.md` and `docs/phase-notes/phase-6.md`) against each service's own `Dockerfile`, not a committed Terraform/Pulumi-style IaC layer - a deliberate choice for a project this size, not an oversight.
 
 ```
 agent-dev-platform/
@@ -39,7 +39,8 @@ agent-dev-platform/
 │   │   ├── integrations/        # agent-eval client
 │   │   └── main.py
 │   ├── migrations/              # Alembic, one migration per entity group + one for DB-level immutability grants
-│   └── tests/
+│   ├── tests/
+│   └── Dockerfile, .dockerignore  # Phase 6
 ├── frontend/                    # Next.js (App Router) developer-facing UI (real, Phase 5)
 │   ├── app/                     # pages (Server Components), Route Handlers (auth, proxy)
 │   │   ├── overview/             # dashboard
@@ -47,8 +48,8 @@ agent-dev-platform/
 │   │   ├── skills/, mcp/, promotions/, activity/, login/
 │   │   └── api/auth/, api/proxy/[...path]/  # Route Handlers - see docs/frontend-architecture.md
 │   ├── components/              # shared display components (badges, layout, activity feed)
-│   └── lib/                     # api.ts (server-only fetch wrapper), auth.ts, permissions.ts, types.ts
-├── infra/                       # PLANNED (Phase 6): Cloud Run service configs, Cloud SQL, deployment scripts
+│   ├── lib/                     # api.ts (server-only fetch wrapper), auth.ts, permissions.ts, types.ts
+│   └── Dockerfile, .dockerignore  # standalone-output image (Phase 6)
 ├── scripts/
 │   ├── seed_orion_commerce.py   # seeds the sample org (docs/product-overview.md) through the real service layer
 │   └── dev_login.py             # CLI dev-token minting (frontend/backend share the same signing logic)

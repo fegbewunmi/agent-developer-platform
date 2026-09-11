@@ -64,6 +64,37 @@ async def register_mcp_server(
     return server
 
 
+async def update_mcp_server_connection(
+    db: AsyncSession, *, actor: User, server_id: uuid.UUID, connection_ref: str
+) -> MCPServer:
+    """Phase 6: connection_ref is set once at registration time and, until now,
+    had no update path - fine in local dev, but a real deployment can genuinely
+    need to repoint a server at its actual reachable address (see phase-6 notes:
+    incident-operations was registered with a local-dev placeholder). Same
+    admin-only authorization and audit trail as registration itself.
+    """
+    if not permissions.can_manage_mcp_registry(actor):
+        raise PermissionDeniedError("only Admins may update MCP server registration")
+
+    server = await get_mcp_server(db, server_id)
+    previous_connection_ref = server.connection_ref
+    server.connection_ref = connection_ref
+    server.health_status = MCPHealthStatus.UNKNOWN
+    server.last_health_check_at = None
+
+    record_audit_event(
+        db,
+        actor_id=actor.id,
+        event_type="mcp_server.connection_updated",
+        entity_type="mcp_server",
+        entity_id=server.id,
+        payload={"previous_connection_ref": previous_connection_ref, "connection_ref": connection_ref},
+    )
+    await db.commit()
+    await db.refresh(server)
+    return server
+
+
 async def list_mcp_servers(db: AsyncSession) -> list[MCPServer]:
     result = await db.execute(select(MCPServer).order_by(MCPServer.name))
     return list(result.scalars().all())

@@ -76,6 +76,6 @@ See [`control-plane-boundaries.md`](control-plane-boundaries.md) for the ownersh
 
 ## Why FastAPI + Next.js + Cloud Run
 
-`ai-operations` and `agent-eval` both already use this exact stack (FastAPI backend, Next.js frontend; `agent-eval`'s isn't deployed yet but targets the same shape). Matching it isn't a style preference - it means Orion Commerce engineers moving between this platform and the systems it governs see one stack, and it means patterns already proven in `ai-operations` (Cloud Run + Cloud SQL + VPC connector, OpenTelemetry → Cloud Trace) can be reused directly rather than re-derived. See [`gcp-architecture.md`](gcp-architecture.md).
+`ai-operations` and `agent-eval` both already use this exact stack (FastAPI backend, Next.js frontend), and this platform's own backend/frontend are now deployed the same way (Phase 6). Matching it isn't a style preference - it means Orion Commerce engineers moving between this platform and the systems it governs see one stack, and it means patterns already proven in `ai-operations` (Cloud Run + Cloud SQL, a Unix-socket connector rather than a VPC connector - see the Phase 6 correction in `gcp-architecture.md`) can be reused directly rather than re-derived. See [`gcp-architecture.md`](gcp-architecture.md).
 
 Notably, **this platform makes no LLM calls of its own** - it has no model provider dependency, unlike all three systems it governs. It is pure CRUD, orchestration, and policy evaluation over data supplied by other systems. See [ADR-0013](adrs/0013-no-first-party-model-usage.md).

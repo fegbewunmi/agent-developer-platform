@@ -1,19 +1,22 @@
 # GCP Architecture
 
-Every service below has a stated reason to exist, tied to a specific requirement elsewhere in these docs - none are included for coverage. Where a real, inspected system already uses a pattern (Cloud Run + Cloud SQL + VPC connector in `ai-operations`), this platform reuses it rather than inventing an alternative.
+Every service below has a stated reason to exist, tied to a specific requirement elsewhere in these docs - none are included for coverage. Where a real, inspected system already uses a pattern (Cloud Run + Cloud SQL in `ai-operations`), this platform reuses it rather than inventing an alternative.
+
+**Status: fully deployed (Phase 6).** Every service in the table below is real and live in `ai-ops-center-eb26`, not planned or partially wired. See `docs/phase-notes/phase-6.md` for the full deployment record, live-verification transcript, and bugs found along the way.
 
 ## Services and why each exists
 
-| Service | Reason |
-|---|---|
-| **Cloud Run** (frontend + API) | Matches `ai-operations`' proven, live deployment pattern (`gcloud run deploy`). Stateless FastAPI/Next.js services, no reason to run anything heavier. |
-| **Cloud SQL (PostgreSQL)** | Control-plane data of record - agents, versions, manifests, grants, policies, promotions, audit. Relational integrity (foreign keys, the `UNIQUE (agent_id) WHERE stage='production'` partial index on `AgentVersionLifecycle`, transactional audit writes) is load-bearing here, not incidental - see [`failure-modes.md`](failure-modes.md) and [`audit-model.md`](audit-model.md). |
-| **Identity Platform / Firebase Auth** | This platform is the first of the four systems to need real authentication - see [`auth-and-approval-model.md`](auth-and-approval-model.md). Issues the JWT the API verifies on every request. |
-| **Pub/Sub** | Fan-out of domain/lifecycle events, decoupled from the request path - a real transactional outbox (`OutboxEvent`) after transactional Postgres writes. See [`audit-model.md`](audit-model.md), [ADR-0020](adrs/0020-promotion-lifecycle-event-outbox.md). Not used for anything synchronous. **Real as of Phase 4**: the `agent-platform-events` topic exists in `ai-ops-center-eb26`; `PubSubPublisher` was proven to publish a real message and a real subscription pull confirmed actual delivery (stronger than Cloud Tasks' proof below, since Pub/Sub delivery doesn't require a running consumer service to verify). Scoped to `agent_version.promoted` only this phase, not the full event catalog. No real subscriber *service* exists yet - same open gap as Cloud Tasks' receiver, Phase 6. |
-| **Cloud Tasks** | The one place this platform genuinely needs durable, retryable, long-running background execution: invoking `agent-eval`'s synchronous, multi-minute `POST /runs` without blocking an API request. See [`evaluation-and-promotion.md`](evaluation-and-promotion.md). **Partially real as of Phase 3**: a real queue (`evaluation-jobs`, `us-central1`) exists and `CloudTasksDispatcher` was proven to create and enqueue real tasks against it (`gcloud tasks list` independently confirmed real delivery attempts). Not yet exercised end-to-end, because the push target - this platform's own API - isn't deployed to Cloud Run yet (Phase 6). Every automated test and both live Phase 3 demos used `LocalSyncDispatcher` instead (non-durable, in-process) - see [`evaluation-and-promotion.md`](evaluation-and-promotion.md#async-dispatch-whats-real-and-what-isnt) for the precise, current boundary. |
-| **Cloud Scheduler** | Periodic MCP server health checks (`MCPServer.health_status`). This is recurring, not event-triggered, work - the reason it's Scheduler and not Cloud Tasks; see the Pub/Sub-vs-Cloud-Tasks distinction below. |
-| **Secret Manager** | `DATABASE_URL`, service credentials for calling `agent-eval`/`ai-operations`, Firebase service account. Same role it already plays in `ai-operations`. |
-| **Cloud Logging / Monitoring / Trace** | Standard operational visibility; `ai-operations` already wires OpenTelemetry → Cloud Trace, and this platform's API does the same for consistency and because promotion/evaluation flows span multiple async hops worth tracing end-to-end. |
+| Service | Reason | Status |
+|---|---|---|
+| **Cloud Run** (frontend + API) | Matches `ai-operations`' proven, live deployment pattern (`gcloud run deploy`). Stateless FastAPI/Next.js services, no reason to run anything heavier. | Deployed: `agent-platform-api`, `agent-platform-web` |
+| **Cloud SQL (PostgreSQL)** | Control-plane data of record - agents, versions, manifests, grants, policies, promotions, audit. Relational integrity (foreign keys, the `UNIQUE (agent_id) WHERE stage='production'` partial index on `AgentVersionLifecycle`, transactional audit writes) is load-bearing here, not incidental - see [`failure-modes.md`](failure-modes.md) and [`audit-model.md`](audit-model.md). | Deployed: `agent_dev_platform` database on the existing shared `ai-ops-db` instance (ADR-0017); all 16 migrations applied to a fresh copy of that database this phase, confirmed reproducible |
+| **Identity Platform / Firebase Auth** | This platform is the first of the four systems to need real authentication - see [`auth-and-approval-model.md`](auth-and-approval-model.md). Issues the JWT the API verifies on every request. | Deployed: Email/Password provider enabled, 4 real seeded users, `verify_id_token` (unmodified since Phase 1) verified against real tokens |
+| **Pub/Sub** | Fan-out of domain/lifecycle events, decoupled from the request path - a real transactional outbox (`OutboxEvent`) after transactional Postgres writes. See [`audit-model.md`](audit-model.md), [ADR-0020](adrs/0020-promotion-lifecycle-event-outbox.md). Not used for anything synchronous. | Deployed and durable: `agent-platform-events` topic; publish-then-pull delivery live-verified; the sweep/retry half of the outbox (`sweep_unpublished_outbox_events`) is real and now runs on a Cloud Scheduler cadence, not just "possible in theory" |
+| **Cloud Tasks** | The one place this platform genuinely needs durable, retryable, long-running background execution: invoking `agent-eval`'s synchronous, multi-minute `POST /runs` without blocking an API request. See [`evaluation-and-promotion.md`](evaluation-and-promotion.md). | Deployed and closed end-to-end: queue `evaluation-jobs` creates tasks, the real deployed API receives and processes them (`POST /internal/tasks/evaluations/{id}`), OIDC push auth verified in application code (ADR-0021), duplicate delivery and failed-task behavior live-verified |
+| **Cloud Scheduler** | Recurring, not event-triggered, work. Used this phase for the outbox reconciliation sweep (`agent-platform-outbox-sweep`, every 5 minutes). | Deployed for the outbox sweep. **Not** wired for periodic MCP health checks (see "Known gap" below) - `POST /v1/mcp-servers/{id}/health-check` remains a manually/on-demand-triggered real HTTP check, not yet on a schedule. |
+| **Secret Manager** | `DATABASE_URL`, service credentials for calling `agent-eval`/`ai-operations`. Same role it already plays in `ai-operations`. | Deployed: `agent-platform-database-url` holds the full runtime `DATABASE_URL` (including the `agent_platform_app` password), mounted via `--set-secrets`, not an inlined plaintext env var (see "Bugs found" in phase-6 notes for why this needed a follow-up fix) |
+| **Cloud Logging / Monitoring** | Structured JSON logs (`app/observability.py`) correlating every async hop by `evaluation_run_reference_id` / `agent_version_id` / `promotion_request_id` / Cloud Task name; 7 log-based metrics for the signals the brief named (evaluation success/failure, agent-eval latency, promotion rejections, stale-evidence blocks, outbox publish failures, Cloud Tasks retries). | Deployed |
+| **Cloud Trace** | Considered, deliberately not added - see "Observability" in `docs/phase-notes/phase-6.md` for the reasoning (correlation-ID structured logging already answers the debugging need for this system's actual async flows; adding Trace would mean instrumenting `agent-eval-api` and `ai-ops-api`, both independently owned, for a marginal gain). | Not added, by decision |
 
 ## agent-eval's real Cloud Run deployment (Phase 3)
 
@@ -33,30 +36,31 @@ Deployed per [ADR-0016](adrs/0016-agent-eval-deployment-decision.md) and [ADR-00
 
 `HttpAgentEvalClient` (`app/integrations/agent_eval_client.py`) sends a real Google-signed ID token when `settings.agent_eval_audience` is set (the deployed Cloud Run URL), and no `Authorization` header at all against an unauthenticated local instance - matching each target's actual reality rather than always sending a token nothing checks. Two token-minting paths, chosen automatically:
 
-- **Production** (this platform running on Cloud Run itself): Application Default Credentials resolve to the platform's *own* attached service account via the metadata server - `google.oauth2.id_token.fetch_id_token` works with zero explicit credential configuration.
-- **Local development / this session's live verification**: a human's `gcloud` login is not itself a service account and cannot mint an audience-scoped ID token directly (`fetch_id_token` rejects it - "Invalid account type", confirmed live). Instead, `google.auth.impersonated_credentials` mints a short-lived token by impersonating `agent-dev-platform-caller` - the developer's own `gcloud` session needs `roles/iam.serviceAccountTokenCreator` on that service account (granted once). **No service-account key file was ever downloaded or persisted** - deliberately, to avoid a long-lived exportable credential; every token used this phase was short-lived and minted on demand.
+- **Production (Phase 6, real)**: `agent-platform-api`'s own attached service account (Application Default Credentials, resolved via the Cloud Run metadata server - no impersonation setting, no key file) calls `agent-eval-api` directly. This required one IAM grant: `roles/run.invoker` on `agent-eval-api` for `agent-platform-api@ai-ops-center-eb26.iam.gserviceaccount.com`.
+- **Local development / manual live verification**: a human's `gcloud` login is not itself a service account and cannot mint an audience-scoped ID token directly (`fetch_id_token` rejects it - "Invalid account type", confirmed live). Instead, `google.auth.impersonated_credentials` mints a short-lived token by impersonating `agent-dev-platform-caller` - the developer's own `gcloud` session needs `roles/iam.serviceAccountTokenCreator` on that service account (granted once, temporarily, for verification). **No service-account key file was ever downloaded or persisted** for either path - deliberately, to avoid a long-lived exportable credential.
 
 ### Cost footprint
 
-The only genuinely *new* recurring cost from this deployment is negligible: Cloud Run scales to zero and bills per request (the live verification's handful of requests plus two real evaluation runs cost well under $0.10); the shared Cloud SQL instance was already running and already being paid for regardless of this deployment (ADR-0017); Artifact Registry added one ~144 MB image. No new Cloud SQL instance, no always-on compute, no material new spend.
+Cloud Run scales to zero and bills per request; the shared Cloud SQL instance was already running and already being paid for regardless of any of this platform's deployments (ADR-0017); Artifact Registry added a handful of images (~100-200 MB each) to the existing shared `ai-ops-images` repo. No new Cloud SQL instance, no always-on compute, no material new spend from this phase's work beyond the request volume of live verification itself (a few dozen real API calls, three real evaluation runs).
 
 ## Explicitly not used
 
 - **Cloud Storage** - manifests are small, structured JSONB that belongs in Postgres transactionally; see [ADR-0003](adrs/0003-manifest-representation-and-storage.md). No large binary artifacts exist in this system's domain to justify object storage.
 - **Vertex AI / any LLM provider** - this platform makes no model calls itself. See [ADR-0013](adrs/0013-no-first-party-model-usage.md).
 - **Kubernetes** - explicit non-goal; Cloud Run covers the actual scaling/traffic needs of a stateless CRUD+orchestration control plane.
+- **VPC connector** - an earlier draft of this document (through Phase 5) assumed `ai-operations`' real deployment used one for its Cloud SQL connection. Direct inspection of the live `ai-ops-api` Cloud Run service this phase found that assumption wrong: it uses the same `--add-cloudsql-instances` Unix-socket connector this platform uses, with no VPC network configuration at all. See the Phase 6 update on [ADR-0012](adrs/0012-gcp-deployment-topology.md).
 
-## Pub/Sub vs. Cloud Tasks - kept genuinely separate
+## Pub/Sub vs. Cloud Tasks vs. Cloud Scheduler - kept genuinely separate
 
-These are easy to conflate and the brief specifically calls out not to. The distinguishing question this design uses: **is this "notify anyone interested that X happened" (Pub/Sub) or "this one specific operation must durably complete, possibly after retries, independent of the request that triggered it" (Cloud Tasks)?**
+These are easy to conflate and the brief specifically calls out not to. The distinguishing question this design uses: **is this "notify anyone interested that X happened" (Pub/Sub), "this one specific operation must durably complete, possibly after retries, independent of the request that triggered it" (Cloud Tasks), or "run this on a clock, not in response to any one event" (Cloud Scheduler)?**
 
-- Pub/Sub: `agent_version.promoted`, `capability.revoked`, `evaluation.completed`, etc. - fan-out, at-least-once, no expectation any particular consumer exists yet.
+- Pub/Sub: `agent_version.promoted` today (still scoped to that one event type, per ADR-0020 - the full audit-event catalog is not fanned out) - fan-out, at-least-once, no expectation any particular consumer exists yet. No real subscriber *service* exists downstream of the topic; the outbox durably retries publish, but nothing currently consumes what's published.
 - Cloud Tasks: "run this evaluation via `agent-eval`'s blocking API and write the result back" - a single owned operation with a single owned outcome, needing retry/backoff semantics, not a broadcast.
-- Cloud Scheduler: periodic MCP health checks - recurring on a clock, not triggered by a domain event; publishes a Pub/Sub message or invokes a Cloud Run job on schedule, doesn't belong in either of the above buckets.
+- Cloud Scheduler: the outbox reconciliation sweep - recurring on a clock, not triggered by a domain event.
 
-See [ADR-0011](adrs/0011-pubsub-vs-cloud-tasks.md).
+See [ADR-0011](adrs/0011-pubsub-vs-cloud-tasks.md), [ADR-0020](adrs/0020-promotion-lifecycle-event-outbox.md), [ADR-0021](adrs/0021-cloud-tasks-application-level-push-auth.md).
 
-## Diagram: deployment topology
+## Diagram: deployment topology (as actually deployed, Phase 6)
 
 ```mermaid
 flowchart TB
@@ -64,33 +68,32 @@ flowchart TB
         Browser["Browser"]
     end
 
-    subgraph CloudRun["Cloud Run"]
-        FE["Frontend service\n(Next.js)"]
-        API["API service\n(FastAPI)"]
+    subgraph CloudRun["Cloud Run (all --allow-unauthenticated;\ninternal endpoints protected in application code)"]
+        FE["agent-platform-web\n(Next.js, standalone output)"]
+        API["agent-platform-api\n(FastAPI)"]
     end
 
     subgraph Data["Data & messaging"]
-        SQL[("Cloud SQL Postgres\n+ VPC connector")]
-        PubSub["Pub/Sub\nagent-platform-events\nREAL - created Phase 4,\npublish+delivery live-verified"]
-        Tasks["Cloud Tasks\nevaluation-invocation queue"]
-        Sched["Cloud Scheduler\nmcp-health-check (cron)"]
+        SQL[("Cloud SQL Postgres\nagent_dev_platform DB,\nUnix socket via --add-cloudsql-instances")]
+        PubSub["Pub/Sub\nagent-platform-events\nREAL - publish+pull delivery verified"]
+        Tasks["Cloud Tasks\nevaluation-jobs queue\nREAL - creation+delivery+idempotency verified"]
+        Sched["Cloud Scheduler\nagent-platform-outbox-sweep\n*/5 * * * *, REAL"]
     end
 
     subgraph Sec["Identity & secrets"]
-        IdP["Identity Platform /\nFirebase Auth"]
-        SM["Secret Manager"]
+        IdP["Identity Platform\nEmail/Password, 4 real users"]
+        SM["Secret Manager\nagent-platform-database-url"]
     end
 
     subgraph Obs["Observability"]
-        CL["Cloud Logging"]
-        CM["Cloud Monitoring"]
-        CT["Cloud Trace"]
+        CL["Cloud Logging\nstructured JSON, correlation IDs"]
+        CM["Cloud Monitoring\n7 log-based metrics"]
     end
 
     subgraph External["External systems (not this repo, independently owned)"]
         AE["agent-eval-api\n(Cloud Run, IAM-authenticated)\nREAL - deployed Phase 3"]
         AO["ai-ops-api\n(Cloud Run)\nREAL - deployed pre-Phase-0"]
-        MCP["Incident Operations MCP\n(stdio, wraps ai-ops-api)"]
+        MCP["Incident Operations MCP\nconnection_ref now points at\nai-ops-api's real /health"]
     end
 
     Browser -- HTTPS --> FE
@@ -100,15 +103,14 @@ flowchart TB
     API <--> SQL
     API --> PubSub
     API --> Tasks
-    Tasks -. "POST /internal/tasks/evaluations/{id}\n(receiver not yet deployed - Phase 6)" .-> API
+    Tasks -- "POST /internal/tasks/evaluations/{id}\nOIDC-verified in app code (ADR-0021)" --> API
     API -- "POST /runs, GET /runs/{id}, GET /runs/compare,\nGET /evaluators, GET /datasets\n(OIDC ID token)" --> AE
-    API -- "GET status" --> AO
-    Sched --> API
-    API -- "health check" --> MCP
+    Sched -- "POST /internal/tasks/outbox/sweep\nOIDC-verified in app code" --> API
+    API -- "health check (admin-set connection_ref)" --> MCP
+    MCP -.-> AO
     API --> SM
     API --> CL
     API --> CM
-    API --> CT
 ```
 
-`agent-eval-api` and `ai-ops-api` are drawn inside "External systems" deliberately - both are real, independently deployed and owned Cloud Run services this platform calls over the network, never services this platform deploys or manages ([ADR-0016](adrs/0016-agent-eval-deployment-decision.md)). The dotted Cloud Tasks → API edge marks the one piece of this diagram that isn't exercised yet: Cloud Tasks can create and enqueue real tasks today (verified), but has nothing real to deliver to until this platform's own API is deployed.
+`agent-eval-api` and `ai-ops-api` are drawn inside "External systems" deliberately - both are real, independently deployed and owned Cloud Run services this platform calls over the network, never services this platform deploys or manages ([ADR-0016](adrs/0016-agent-eval-deployment-decision.md)). Every edge in this diagram is now real and live-verified; the Phase 5 diagram's dotted "not yet deployed" edges are gone.

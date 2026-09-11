@@ -57,6 +57,7 @@ No `PATCH`/`PUT` route exists anywhere for `AgentVersion`, `SkillVersion`, or an
 | `GET /v1/mcp-servers` | any authenticated user | |
 | `POST /v1/mcp-servers` | Admin only | `409` on duplicate name |
 | `GET /v1/mcp-servers/{server_id}` | any authenticated user | |
+| `PATCH /v1/mcp-servers/{server_id}/connection` | Admin only | Phase 6: updates `connection_ref`; resets `health_status` to `unknown`. Added to fix a real deployment gap - see `docs/phase-notes/phase-6.md` |
 | `POST /v1/mcp-servers/{server_id}/health-check` | any authenticated user | Real HTTP call to `{connection_ref}/health`; health is availability, not authorization |
 | `GET /v1/mcp-servers/{server_id}/tools` | any authenticated user | |
 | `POST /v1/mcp-servers/{server_id}/tools` | Admin only | `409` on duplicate `(server, name)` |
@@ -109,7 +110,8 @@ Rollback is not a separate endpoint - it's an ordinary `POST .../promotion-reque
 
 | Method & path | Auth | Notes |
 |---|---|---|
-| `POST /internal/tasks/evaluations/{reference_id}` | none at the application layer - Cloud Run's own IAM authenticates the push in production | Not for direct use; the real Cloud Tasks receiver target (`app/services/job_dispatch.py::CloudTasksDispatcher`). See `docs/gcp-architecture.md` |
+| `POST /internal/tasks/evaluations/{reference_id}` | real application-level OIDC verification (`app/auth/cloud_tasks.py`), not Cloud Run IAM - see [ADR-0021](adrs/0021-cloud-tasks-application-level-push-auth.md) for why | Not for direct use; the real Cloud Tasks receiver target (`app/services/job_dispatch.py::CloudTasksDispatcher`). See `docs/gcp-architecture.md` |
+| `POST /internal/tasks/outbox/sweep` | same application-level OIDC verification as above | Phase 6: Cloud Scheduler's push target, retries any `OutboxEvent` still unpublished (`app/services/event_publisher.py::sweep_unpublished_outbox_events`) |
 
 ## Error conventions
 

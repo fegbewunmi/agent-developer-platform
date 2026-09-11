@@ -18,8 +18,11 @@ the other:
   path - documented precisely, never described as "the same as Cloud Tasks."
 """
 import asyncio
+import logging
 import uuid
 from typing import Protocol
+
+logger = logging.getLogger(__name__)
 
 
 class JobDispatcher(Protocol):
@@ -77,4 +80,8 @@ class CloudTasksDispatcher:
                 ),
             )
         )
-        await client.create_task(parent=parent, task=task)
+        created = await client.create_task(parent=parent, task=task)
+        logger.info(
+            "cloud task created",
+            extra={"evaluation_run_reference_id": str(evaluation_run_reference_id), "cloud_task_name": created.name},
+        )

@@ -6,23 +6,33 @@ This is **not** an agent runtime. It does not execute agents, does not run evalu
 
 ## Status
 
-**Phases 1-5 complete: full lifecycle, backend and frontend.** Core domain schema, real JWT authentication, the seeded Orion Commerce organization, the agent/version/skill/MCP registries with governed capability grants, the real Agent Evaluation Platform integration (evaluation policies, gate computation, evidence freshness), the full human promotion lifecycle (request, review, approve/reject, production transition, rollback), and a Next.js developer-facing UI over all of it are implemented and live-verified - 178 backend automated tests, 55 frontend automated tests, plus repeated live demonstrations against the real deployed `agent-eval-api` Cloud Run service and the real dev database (see [`docs/phase-notes/`](docs/phase-notes/) for each phase's transcript, most recently [`phase-5.md`](docs/phase-notes/phase-5.md)). `agent-eval` itself was deployed to Cloud Run in Phase 3 ([ADR-0016](docs/adrs/0016-agent-eval-deployment-decision.md)). This platform's own backend/frontend are not yet deployed to Cloud Run - that, plus final end-to-end deployment verification, is Phase 6. See [`docs/roadmap.md`](docs/roadmap.md) for the implementation plan and [`docs/open-questions.md`](docs/open-questions.md) for what's still unresolved.
+**Phases 1-6 complete: fully deployed control plane, end to end.** Core domain schema, real JWT authentication, the seeded Orion Commerce organization, the agent/version/skill/MCP registries with governed capability grants, the real Agent Evaluation Platform integration (evaluation policies, gate computation, evidence freshness), the full human promotion lifecycle (request, review, approve/reject, production transition, rollback), and a Next.js developer-facing UI over all of it are implemented, deployed to Cloud Run, and live-verified against the real deployed system - 188 backend automated tests, 55 frontend automated tests, plus real end-to-end verification through the actual deployed frontend/backend/database/`agent-eval-api`/Cloud Tasks/Pub/Sub (see [`docs/phase-notes/`](docs/phase-notes/) for each phase's transcript, most recently [`phase-6.md`](docs/phase-notes/phase-6.md)). `agent-eval` was deployed to Cloud Run in Phase 3 ([ADR-0016](docs/adrs/0016-agent-eval-deployment-decision.md)); this platform's own backend and frontend were deployed to Cloud Run in Phase 6, with real production authentication (Identity Platform), real Cloud Tasks delivery, and a durable Pub/Sub outbox - see [`docs/gcp-architecture.md`](docs/gcp-architecture.md) for the final topology and [`docs/open-questions.md`](docs/open-questions.md) / phase-6 notes' "Known limitations" for what remains genuinely open.
 
 ## Screenshots
 
-Real UI, real data - both captured from a live session against the actual backend/database/deployed `agent-eval-api`, not mockups.
+Real UI, real data - captured from the actual **deployed** Cloud Run frontend/backend/database, signed in via real Identity Platform authentication, not mockups or a local dev server.
 
-**Overview** - live counts and a "Needs Attention" list, every item backed by real backend state:
+**Overview** (deployed) - live counts and a "Needs Attention" list, every item backed by real backend state:
 
-![Overview dashboard](docs/screenshots/overview.jpg)
+![Overview dashboard, deployed](docs/screenshots/overview-deployed.jpg)
 
-**AgentVersion detail** - the freshness UX differentiator: a historically-passing evaluation is never retroactively marked as failed when its evidence drifts stale, and the exact stale reason (with before/after hashes) is always shown:
+**Promotion review** (deployed) - the freshness UX differentiator, on the actual review screen: "eligible when requested" (frozen) vs. "eligible now" (live, recomputed) shown side by side, with the real before/after capability-grant hash that made it go stale - a historically-passing evaluation is never retroactively marked as failed:
+
+![Promotion review showing eligible-when-requested vs eligible-now](docs/screenshots/promotion-review-freshness-deployed.jpg)
+
+**MCP registry** (deployed) - a real, live HTTP health check against the actual Incident Operations backend, not a simulated status:
+
+![MCP registry showing a live-checked healthy server](docs/screenshots/mcp-registry-deployed.jpg)
+
+**AgentVersion detail** (local dev, Phase 5) - the same freshness distinction on the version reproducibility page:
 
 ![AgentVersion detail showing the freshness/eligibility distinction](docs/screenshots/agent-version-detail-freshness.jpg)
 
-## Running it locally
+## Running it
 
-Backend (FastAPI + Postgres): see `backend/README.md` for the real dev-login flow and environment variables. Frontend (Next.js): `cd frontend && npm install && npm run dev`, pointed at the backend via `BACKEND_API_URL` in `frontend/.env.local`. Sign in at `/login` as one of the four seeded Orion Commerce users - see [`docs/frontend-architecture.md`](docs/frontend-architecture.md) for how that auth flow is real, not mocked.
+**Deployed**: the real, live instance runs on Cloud Run - see [`docs/gcp-architecture.md`](docs/gcp-architecture.md) for the topology and [`docs/phase-notes/phase-6.md`](docs/phase-notes/phase-6.md) for the deployment record. Service URLs are internal (Identity Platform-gated); ask a team member for access rather than assuming a public URL in these docs is meant for direct browsing.
+
+**Locally**: Backend (FastAPI + Postgres): see `backend/README.md` for the real dev-login flow and environment variables. Frontend (Next.js): `cd frontend && npm install && npm run dev`, pointed at the backend via `BACKEND_API_URL` in `frontend/.env.local`. Sign in at `/login` as one of the four seeded Orion Commerce users - see [`docs/frontend-architecture.md`](docs/frontend-architecture.md) for how that auth flow is real, not mocked. `dev-login` is local-only by design - the deployed environment always uses real Identity Platform password sign-in (`docs/auth-and-approval-model.md`).
 
 ## Why this exists
 

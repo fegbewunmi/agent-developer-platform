@@ -150,3 +150,39 @@ async def test_health_check_against_an_unreachable_server(client, org, headers_f
     check_resp = await client.post(f"/v1/mcp-servers/{server_id}/health-check", headers=headers_for(org["viewer"]))
     assert check_resp.status_code == 200
     assert check_resp.json()["health_status"] == "unavailable"
+
+
+async def test_update_connection_ref_admin_only(client, org, headers_for, real_health_server):
+    server_resp = await client.post(
+        "/v1/mcp-servers",
+        json={
+            "name": "repointable-server",
+            "environment": "development",
+            "owner_team_id": str(org["team_a"].id),
+            "connection_ref": "http://127.0.0.1:1",
+        },
+        headers=headers_for(org["admin"]),
+    )
+    server_id = server_resp.json()["id"]
+
+    forbidden = await client.patch(
+        f"/v1/mcp-servers/{server_id}/connection",
+        json={"connection_ref": real_health_server},
+        headers=headers_for(org["viewer"]),
+    )
+    assert forbidden.status_code == 403
+
+    update_resp = await client.patch(
+        f"/v1/mcp-servers/{server_id}/connection",
+        json={"connection_ref": real_health_server},
+        headers=headers_for(org["admin"]),
+    )
+    assert update_resp.status_code == 200
+    body = update_resp.json()
+    assert body["connection_ref"] == real_health_server
+    # Repointing resets any stale health signal from the old address.
+    assert body["health_status"] == "unknown"
+    assert body["last_health_check_at"] is None
+
+    check_resp = await client.post(f"/v1/mcp-servers/{server_id}/health-check", headers=headers_for(org["viewer"]))
+    assert check_resp.json()["health_status"] == "healthy"

@@ -7,6 +7,7 @@ Runs with its own DB session (SessionLocal directly, not FastAPI's Depends(get_d
 since it executes outside any request's dependency-injection scope.
 """
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 
@@ -77,7 +78,10 @@ async def process_evaluation_job(evaluation_run_reference_id: uuid.UUID, agent_e
         claimed = claim.scalar_one_or_none()
         await db.commit()
         if claimed is None:
-            logger.info("evaluation job %s already claimed or terminal - skipping duplicate delivery", evaluation_run_reference_id)
+            logger.info(
+                "evaluation job already claimed or terminal - skipping duplicate delivery",
+                extra={"evaluation_run_reference_id": str(evaluation_run_reference_id)},
+            )
             return
 
     async with SessionLocal() as db:
@@ -87,11 +91,21 @@ async def process_evaluation_job(evaluation_run_reference_id: uuid.UUID, agent_e
         version = (await db.execute(select(AgentVersion).where(AgentVersion.id == reference.agent_version_id))).scalar_one()
         agent = (await db.execute(select(Agent).where(Agent.id == version.agent_id))).scalar_one()
         system_actor_id = await _get_system_actor_id(db)
+        logger.info(
+            "evaluation job dispatched, calling agent-eval",
+            extra={
+                "evaluation_run_reference_id": str(evaluation_run_reference_id),
+                "agent_version_id": str(version.id),
+                "agent_id": str(agent.id),
+                "external_agent_version_id": reference.external_agent_version_id,
+            },
+        )
 
         submitted = reference.external_evaluator_ids or {}
         evaluator_ids = submitted.get("ids", [])
         submitted_versions = submitted.get("versions", {})
 
+        _started = time.monotonic()
         try:
             run = await agent_eval_client.trigger_run(
                 agent_version_id=reference.external_agent_version_id,
@@ -109,6 +123,15 @@ async def process_evaluation_job(evaluation_run_reference_id: uuid.UUID, agent_e
         except AgentEvalMalformedResponseError as exc:
             await _mark_failed(db, reference, agent, system_actor_id, f"malformed agent-eval response: {exc}")
             return
+        agent_eval_latency_ms = (time.monotonic() - _started) * 1000
+        logger.info(
+            "agent-eval call completed",
+            extra={
+                "evaluation_run_reference_id": str(evaluation_run_reference_id),
+                "agent_eval_latency_ms": round(agent_eval_latency_ms, 1),
+                "external_run_id": run.id,
+            },
+        )
 
         # From here on, the external run genuinely succeeded - any failure below is
         # the "DB write failure after external run completion" distributed-failure
@@ -165,6 +188,10 @@ async def _mark_failed(db, reference: EvaluationRunReference, agent: Agent, acto
         payload={"reason": message},
     )
     await db.commit()
+    logger.warning(
+        "evaluation job failed",
+        extra={"evaluation_run_reference_id": str(reference.id), "agent_id": str(agent.id), "reason": message},
+    )
 
 
 async def _persist_success(
@@ -245,6 +272,19 @@ async def _persist_success(
         )
 
     await db.commit()
+    logger.info(
+        "evaluation job completed",
+        extra={
+            "evaluation_run_reference_id": str(reference.id),
+            "agent_id": str(agent.id),
+            "agent_version_id": str(reference.agent_version_id),
+            "external_run_id": run.id,
+            "all_gates_passed": all_passed,
+            "n_gates": len(computed),
+            "n_cases_success": n_success,
+            "n_cases_error": n_error,
+        },
+    )
 
 
 async def _resolve_baseline_comparison(db, agent: Agent, run, agent_eval_client: AgentEvalClient):

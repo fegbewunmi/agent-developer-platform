@@ -17,7 +17,10 @@ from app.api import (
     teams,
 )
 from app.config import settings
+from app.observability import configure_logging
 from app.services.errors import ConflictError, NotFoundError, PermissionDeniedError, ValidationError
+
+configure_logging(structured=settings.environment != "development")
 
 app = FastAPI(title="Orion Agent Developer Platform API", version="0.1.0")
 

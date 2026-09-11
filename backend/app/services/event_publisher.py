@@ -21,6 +21,7 @@ OutboxEvent as a source of truth; audit_events (read directly) already answers
 "what happened and why," per docs/audit-model.md - the outbox exists purely
 to fan the same fact out to external subscribers, if any exist.
 """
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Protocol
@@ -29,6 +30,8 @@ from sqlalchemy import select
 
 from app.db.session import SessionLocal
 from app.models.outbox import OutboxEvent
+
+logger = logging.getLogger(__name__)
 
 
 class EventPublisher(Protocol):
@@ -43,6 +46,61 @@ class LocalNoopPublisher:
             event = (await db.execute(select(OutboxEvent).where(OutboxEvent.id == outbox_event_id))).scalar_one()
             event.published_at = datetime.now(timezone.utc)
             await db.commit()
+
+
+async def sweep_unpublished_outbox_events(publisher: "EventPublisher", *, limit: int = 50) -> dict:
+    """Phase 6: the durable-retry half of the outbox pattern. Phase 4/5 only
+    ever attempted publish once, immediately after commit
+    (app/services/promotions.py::approve_promotion) - real, but incomplete:
+    "DB commit succeeds -> Pub/Sub temporarily fails" left that row stuck
+    unpublished forever with nothing to notice and retry it. This closes
+    that gap with the smallest viable mechanism: re-attempt every row where
+    `published_at IS NULL` (the existing `ix_outbox_events_unpublished`
+    partial index, added in migration 0016 specifically for this), reusing
+    the exact same `publish()` each row's original attempt used - no new
+    publish logic, just calling it again.
+
+    Intentionally NOT a generic event-platform retry queue: no backoff
+    schedule, no max-attempt tracking, no dead-letter table. A periodic
+    sweep (Cloud Scheduler, minutes-scale cadence) calling this is
+    sufficient for the actual failure mode in play (a transient Pub/Sub
+    hiccup), matching the brief's explicit "do not overbuild" instruction -
+    see docs/adrs/0020-promotion-lifecycle-event-outbox.md's Phase 6
+    addendum.
+
+    Publish is safe to attempt more than once per row: `publisher.publish`
+    is idempotent from this function's point of view (it only ever
+    transitions a row from unpublished to published, never the reverse),
+    and Pub/Sub itself is already an at-least-once system - real subscribers
+    must already tolerate a duplicate delivery, so a duplicate *publish* of
+    the same still-unpublished row (the rare case where the previous attempt
+    actually succeeded on Pub/Sub's side but crashed before this service
+    recorded `published_at`) is within the same guarantee, not a new one.
+    """
+    async with SessionLocal() as db:
+        pending_ids = list(
+            (
+                await db.execute(
+                    select(OutboxEvent.id)
+                    .where(OutboxEvent.published_at.is_(None))
+                    .order_by(OutboxEvent.created_at)
+                    .limit(limit)
+                )
+            ).scalars().all()
+        )
+
+    attempted = len(pending_ids)
+    succeeded = 0
+    for event_id in pending_ids:
+        await publisher.publish(event_id)
+        async with SessionLocal() as db:
+            row = (await db.execute(select(OutboxEvent).where(OutboxEvent.id == event_id))).scalar_one()
+            if row.published_at is not None:
+                succeeded += 1
+            else:
+                logger.warning("outbox event %s still unpublished after sweep retry: %s", event_id, row.publish_error)
+
+    return {"attempted": attempted, "succeeded": succeeded, "still_pending": attempted - succeeded}
 
 
 class PubSubPublisher:

@@ -1,17 +1,24 @@
 import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { LoginForm } from "./LoginForm";
+import { PasswordLoginForm } from "./PasswordLoginForm";
 import type { DevLoginUser } from "@/lib/types";
 
 const BACKEND_URL = process.env.BACKEND_API_URL ?? "http://127.0.0.1:8000";
 
-async function getDevLoginUsers(): Promise<{ users: DevLoginUser[]; unavailable: boolean }> {
+type DevLoginState =
+  | { kind: "unreachable" }
+  | { kind: "unavailable" } // dev-login route doesn't exist - a real (deployed) environment
+  | { kind: "available"; users: DevLoginUser[] };
+
+async function getDevLoginState(): Promise<DevLoginState> {
   try {
     const res = await fetch(`${BACKEND_URL}/v1/dev-login/users`, { cache: "no-store" });
-    if (!res.ok) return { users: [], unavailable: true };
-    return { users: await res.json(), unavailable: false };
+    if (res.status === 404) return { kind: "unavailable" };
+    if (!res.ok) return { kind: "unreachable" };
+    return { kind: "available", users: await res.json() };
   } catch {
-    return { users: [], unavailable: true };
+    return { kind: "unreachable" };
   }
 }
 
@@ -26,7 +33,7 @@ export default async function LoginPage({
     redirect(next || "/overview");
   }
 
-  const { users, unavailable } = await getDevLoginUsers();
+  const devLogin = await getDevLoginState();
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-bg px-4">
@@ -37,21 +44,20 @@ export default async function LoginPage({
           <p className="text-[13px] text-text-faint">Sign in to continue</p>
         </div>
         <div className="rounded-lg border border-border bg-bg-raised p-5">
-          {unavailable ? (
+          {devLogin.kind === "unreachable" ? (
             <p className="text-[13px] text-danger">
               The Orion API is unreachable. Confirm the backend is running at {BACKEND_URL}.
             </p>
-          ) : users.length === 0 ? (
-            <p className="text-[13px] text-text-muted">
-              Dev login is not enabled on this backend (no <code className="mono">AUTH_JWKS_FILE</code> configured).
-              In a real deployment, sign-in goes through Identity Platform instead.
-            </p>
+          ) : devLogin.kind === "available" && devLogin.users.length > 0 ? (
+            <LoginForm users={devLogin.users} next={next} />
           ) : (
-            <LoginForm users={users} next={next} />
+            <PasswordLoginForm next={next} />
           )}
         </div>
         <p className="mt-4 text-center text-[11px] text-text-faint">
-          Dev-only login - mints a real, backend-verified JWT for a seeded Orion Commerce user.
+          {devLogin.kind === "available" && devLogin.users.length > 0
+            ? "Dev-only login - mints a real, backend-verified JWT for a seeded Orion Commerce user."
+            : "Real Identity Platform sign-in - the resulting token is verified by the backend exactly like any other."}
         </p>
       </div>
     </div>

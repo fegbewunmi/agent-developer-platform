@@ -15,6 +15,7 @@ candidate/retired are both legal source stages for a promotion request
 ADR-0007's Phase 4 update resolves docs/open-questions.md item 2 in favor of
 "gates stay hard even for rollback," no bypass).
 """
+import logging
 import uuid
 from datetime import datetime, timezone
 
@@ -36,6 +37,8 @@ from app.services.errors import ConflictError, NotFoundError, PermissionDeniedEr
 from app.services.event_publisher import EventPublisher
 from app.services.evidence_snapshot import take_capability_grant_snapshot
 from app.services.freshness import FreshnessResult
+
+logger = logging.getLogger(__name__)
 
 # Both legal source stages for `-> production`, per
 # docs/evaluation-and-promotion.md's state diagram: an ordinary promotion
@@ -187,6 +190,15 @@ async def request_promotion(
     )
     await db.commit()
     await db.refresh(request)
+    logger.info(
+        "promotion requested",
+        extra={
+            "promotion_request_id": str(request.id),
+            "agent_version_id": str(agent_version_id),
+            "agent_id": str(agent.id),
+            "from_stage": request.from_stage.value,
+        },
+    )
     return request
 
 
@@ -272,6 +284,10 @@ async def approve_promotion(
         )
         await db.commit()
         reasons = ", ".join(f.reason for f in freshness.stale_findings) or "evidence is no longer eligible"
+        logger.warning(
+            "promotion approval blocked - stale evidence",
+            extra={"promotion_request_id": str(promotion_request_id), "agent_id": str(agent.id), "stale_reasons": reasons},
+        )
         raise ConflictError(f"promotion request {promotion_request_id} is no longer eligible for approval: {reasons}")
 
     current_prod = await _get_current_production_lifecycle(db, agent.id)
@@ -375,6 +391,16 @@ async def approve_promotion(
 
     await db.commit()
     await db.refresh(decision)
+    logger.info(
+        "promotion approved - production transition committed",
+        extra={
+            "promotion_request_id": str(request.id),
+            "agent_id": str(agent.id),
+            "agent_version_id": str(request.agent_version_id),
+            "is_rollback": is_rollback,
+            "outbox_event_id": str(outbox.id),
+        },
+    )
 
     await event_publisher.publish(outbox.id)
 
@@ -448,6 +474,10 @@ async def reject_promotion(
     )
     await db.commit()
     await db.refresh(decision)
+    logger.info(
+        "promotion rejected",
+        extra={"promotion_request_id": str(request.id), "agent_id": str(agent.id), "agent_version_id": str(request.agent_version_id)},
+    )
     return decision
 
 

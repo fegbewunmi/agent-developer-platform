@@ -57,5 +57,12 @@ class Settings(BaseSettings):
     cloud_tasks_target_base_url: str | None = None
     cloud_tasks_target_service_account_email: str | None = None
 
+    # Promotion lifecycle event outbox (Phase 4) - "local" uses LocalNoopPublisher
+    # (dev/test; see app/services/event_publisher.py), "pubsub" uses the real
+    # PubSubPublisher.
+    event_publish_mode: str = "local"
+    pubsub_project: str | None = None
+    pubsub_topic: str | None = None
+
 
 settings = Settings()

@@ -18,3 +18,5 @@ Pub/Sub (`agent-platform-events` topic) is used exclusively for post-commit, bes
 ## Consequences
 
 Two message-passing systems in the stack instead of one - more to operate, but each is used for the thing it's actually good at, avoiding the ambiguity the brief flags as a common mistake. Any future feature needing "notify someone eventually" reaches for Pub/Sub by default; anything needing "this specific operation must complete, with retries" reaches for Cloud Tasks.
+
+**Phase 4 update**: the `agent-platform-events` topic decided here is now real, and the mechanism for getting an event from "just committed" to "published" without a lost-update window (a transactional outbox, `OutboxEvent`) is its own decision - see [ADR-0020](0020-promotion-lifecycle-event-outbox.md). This ADR's choice of Pub/Sub itself was unchanged by that; only the "how" needed a new record.

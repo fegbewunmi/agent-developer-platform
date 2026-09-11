@@ -74,6 +74,21 @@ No `PATCH`/`PUT` route exists anywhere for `AgentVersion`, `SkillVersion`, or an
 | `GET /v1/evaluations/{reference_id}/gates` | any authenticated user | One row per gate criterion - never a blended score |
 | `GET /v1/agent-versions/{agent_version_id}/candidacy` | any authenticated user | Live-computed: `historically_passed` (permanent fact) vs. `currently_eligible` (computed fresh every call) with explicit `stale_findings[]` - see [`evaluation-and-promotion.md`](evaluation-and-promotion.md#evidence-freshness) |
 
+## Promotions
+
+No generic update endpoint - every state transition is its own explicit action.
+
+| Method & path | Auth | Notes |
+|---|---|---|
+| `POST /v1/agent-versions/{agent_version_id}/promotion-requests` | Builder (own team), Reviewer, Admin | Body: `{"reason": "..." (optional)}`. `201` with the created `PromotionRequest` (full context snapshot - see [ADR-0018](adrs/0018-promotion-request-immutability.md)). `409` if the version isn't `candidate`/`retired`, if a pending request already exists for it, or if it isn't currently eligible (evidence not fresh, or no passing evaluation at all) |
+| `GET /v1/agent-versions/{agent_version_id}/promotion-requests` | any authenticated user | All `PromotionRequest`s for this version, newest first |
+| `GET /v1/promotion-requests/{promotion_request_id}` | any authenticated user | The request plus its `PromotionDecision`, if one exists (`decision: null` while pending) |
+| `POST /v1/promotion-requests/{promotion_request_id}/approve` | Reviewer, Admin - never the requester | Body: `{"comment": "..." (optional)}`. `201` with the created `PromotionDecision`. Re-checks freshness live at decision time; `409` if no longer eligible (no production mutation happens), if the request was already decided, or if the cited gate results no longer all pass (defense-in-depth; expected unreachable since gate results are immutable) |
+| `POST /v1/promotion-requests/{promotion_request_id}/reject` | Reviewer, Admin - never the requester | Body: `{"comment": "..." (optional)}`. `201` with the created `PromotionDecision`. Never blocked by staleness - the cited `AgentVersion` stays `candidate`/`retired`, unchanged |
+| `GET /v1/agents/{agent_id}/promotion-history` | any authenticated user | Every `PromotionRequest` (with its decision, if any) across every `AgentVersion` this `Agent` has ever had, newest first - answers "why is this exact version in production right now?" without reconstructing intent from mutable tables |
+
+Rollback is not a separate endpoint - it's an ordinary `POST .../promotion-requests` against an old, `retired` `AgentVersion`, gated identically (see [`evaluation-and-promotion.md`](evaluation-and-promotion.md#promotion-lifecycle)).
+
 ## Internal (Cloud Tasks push target)
 
 | Method & path | Auth | Notes |

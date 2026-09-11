@@ -177,6 +177,27 @@ def test_second_agent_can_independently_have_a_production_version(app_conn):
     app_conn.commit()
 
 
+def _make_policy_and_reference(cur, version_id: uuid.UUID, user_id: uuid.UUID) -> tuple[uuid.UUID, uuid.UUID]:
+    """Phase 4 (migration 0014): promotion_requests.evaluation_policy_id and
+    evaluation_run_reference_id are NOT NULL, so every test that inserts a
+    PromotionRequest needs a real policy + reference row to point at."""
+    policy_id = uuid.uuid4()
+    cur.execute(
+        """INSERT INTO evaluation_policies
+           (id, name, version, thresholds, required_evaluator_keys, dataset_key, created_by)
+           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+        (policy_id, f"policy-{policy_id.hex[:8]}", "v1", "{}", "{}", "dataset-1", user_id),
+    )
+    reference_id = uuid.uuid4()
+    cur.execute(
+        """INSERT INTO evaluation_run_references
+           (id, agent_version_id, evaluation_policy_id, external_agent_version_id, requested_by)
+           VALUES (%s, %s, %s, %s, %s)""",
+        (reference_id, version_id, policy_id, "ext-av-1", user_id),
+    )
+    return policy_id, reference_id
+
+
 def test_promotion_decision_rejects_self_approval(app_conn):
     with app_conn.cursor() as cur:
         _, user_id, agent_id = _make_team_user_agent(cur)
@@ -186,12 +207,14 @@ def test_promotion_decision_rejects_self_approval(app_conn):
                VALUES (%s, %s, %s, %s, %s, %s)""",
             (version_id, agent_id, "1.0.0", "{}", "hash", user_id),
         )
+        policy_id, reference_id = _make_policy_and_reference(cur, version_id, user_id)
         request_id = uuid.uuid4()
         cur.execute(
             """INSERT INTO promotion_requests
-               (id, agent_version_id, from_stage, to_stage, requested_by)
-               VALUES (%s, %s, 'candidate', 'production', %s)""",
-            (request_id, version_id, user_id),
+               (id, agent_version_id, from_stage, to_stage, requested_by,
+                evaluation_run_reference_id, evaluation_policy_id)
+               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s)""",
+            (request_id, version_id, user_id, reference_id, policy_id),
         )
     app_conn.commit()
 
@@ -217,18 +240,146 @@ def test_promotion_decision_by_a_different_user_succeeds(app_conn):
                VALUES (%s, %s, %s, %s, %s, %s)""",
             (version_id, agent_id, "1.0.0", "{}", "hash", requester_id),
         )
+        policy_id, reference_id = _make_policy_and_reference(cur, version_id, requester_id)
         request_id = uuid.uuid4()
         cur.execute(
             """INSERT INTO promotion_requests
-               (id, agent_version_id, from_stage, to_stage, requested_by)
-               VALUES (%s, %s, 'candidate', 'production', %s)""",
-            (request_id, version_id, requester_id),
+               (id, agent_version_id, from_stage, to_stage, requested_by,
+                evaluation_run_reference_id, evaluation_policy_id)
+               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s)""",
+            (request_id, version_id, requester_id, reference_id, policy_id),
         )
         cur.execute(
             "INSERT INTO promotion_decisions (id, promotion_request_id, decision, decided_by) VALUES (%s, %s, 'approve', %s)",
             (uuid.uuid4(), request_id, reviewer_id),
         )
     app_conn.commit()
+
+
+def test_promotion_request_status_update_succeeds(app_conn):
+    """Phase 4 (migration 0015): agent_platform_app has column-level UPDATE
+    on `status` only - this must still work."""
+    with app_conn.cursor() as cur:
+        _, user_id, agent_id = _make_team_user_agent(cur)
+        version_id = uuid.uuid4()
+        cur.execute(
+            """INSERT INTO agent_versions (id, agent_id, version_label, manifest, content_hash, created_by)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (version_id, agent_id, "1.0.0", "{}", "hash", user_id),
+        )
+        policy_id, reference_id = _make_policy_and_reference(cur, version_id, user_id)
+        request_id = uuid.uuid4()
+        cur.execute(
+            """INSERT INTO promotion_requests
+               (id, agent_version_id, from_stage, to_stage, requested_by,
+                evaluation_run_reference_id, evaluation_policy_id)
+               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s)""",
+            (request_id, version_id, user_id, reference_id, policy_id),
+        )
+    app_conn.commit()
+
+    with app_conn.cursor() as cur:
+        cur.execute("UPDATE promotion_requests SET status = 'rejected' WHERE id = %s", (request_id,))
+    app_conn.commit()
+
+
+def test_promotion_request_non_status_column_update_is_rejected(app_conn):
+    """Everything except `status` on promotion_requests is a frozen
+    snapshot of the decision context at request time - see
+    docs/adrs/0018-promotion-request-immutability.md."""
+    with app_conn.cursor() as cur:
+        _, user_id, agent_id = _make_team_user_agent(cur)
+        version_id = uuid.uuid4()
+        cur.execute(
+            """INSERT INTO agent_versions (id, agent_id, version_label, manifest, content_hash, created_by)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (version_id, agent_id, "1.0.0", "{}", "hash", user_id),
+        )
+        policy_id, reference_id = _make_policy_and_reference(cur, version_id, user_id)
+        request_id = uuid.uuid4()
+        cur.execute(
+            """INSERT INTO promotion_requests
+               (id, agent_version_id, from_stage, to_stage, requested_by,
+                evaluation_run_reference_id, evaluation_policy_id, reason)
+               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s, 'original reason')""",
+            (request_id, version_id, user_id, reference_id, policy_id),
+        )
+    app_conn.commit()
+
+    with app_conn.cursor() as cur, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        cur.execute("UPDATE promotion_requests SET reason = 'tampered' WHERE id = %s", (request_id,))
+    app_conn.rollback()
+
+
+def test_promotion_decision_update_and_delete_are_rejected(app_conn):
+    with app_conn.cursor() as cur:
+        team_id, requester_id, agent_id = _make_team_user_agent(cur)
+        reviewer_id = uuid.uuid4()
+        cur.execute(
+            "INSERT INTO users (id, name, email, team_id, role) VALUES (%s, %s, %s, %s, %s)",
+            (reviewer_id, "Reviewer", f"{reviewer_id.hex[:8]}@example.com", team_id, "reviewer"),
+        )
+        version_id = uuid.uuid4()
+        cur.execute(
+            """INSERT INTO agent_versions (id, agent_id, version_label, manifest, content_hash, created_by)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (version_id, agent_id, "1.0.0", "{}", "hash", requester_id),
+        )
+        policy_id, reference_id = _make_policy_and_reference(cur, version_id, requester_id)
+        request_id = uuid.uuid4()
+        cur.execute(
+            """INSERT INTO promotion_requests
+               (id, agent_version_id, from_stage, to_stage, requested_by,
+                evaluation_run_reference_id, evaluation_policy_id)
+               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s)""",
+            (request_id, version_id, requester_id, reference_id, policy_id),
+        )
+        decision_id = uuid.uuid4()
+        cur.execute(
+            "INSERT INTO promotion_decisions (id, promotion_request_id, decision, decided_by) VALUES (%s, %s, 'approve', %s)",
+            (decision_id, request_id, reviewer_id),
+        )
+    app_conn.commit()
+
+    with app_conn.cursor() as cur, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        cur.execute("UPDATE promotion_decisions SET comment = 'tampered' WHERE id = %s", (decision_id,))
+    app_conn.rollback()
+
+    with app_conn.cursor() as cur, pytest.raises(psycopg.errors.InsufficientPrivilege):
+        cur.execute("DELETE FROM promotion_decisions WHERE id = %s", (decision_id,))
+    app_conn.rollback()
+
+
+def test_one_pending_promotion_request_per_version(app_conn):
+    """migration 0014's partial unique index - the DB-level backstop for
+    'at most one PENDING PromotionRequest per AgentVersion at a time'."""
+    with app_conn.cursor() as cur:
+        _, user_id, agent_id = _make_team_user_agent(cur)
+        version_id = uuid.uuid4()
+        cur.execute(
+            """INSERT INTO agent_versions (id, agent_id, version_label, manifest, content_hash, created_by)
+               VALUES (%s, %s, %s, %s, %s, %s)""",
+            (version_id, agent_id, "1.0.0", "{}", "hash", user_id),
+        )
+        policy_id, reference_id = _make_policy_and_reference(cur, version_id, user_id)
+        cur.execute(
+            """INSERT INTO promotion_requests
+               (id, agent_version_id, from_stage, to_stage, requested_by,
+                evaluation_run_reference_id, evaluation_policy_id)
+               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s)""",
+            (uuid.uuid4(), version_id, user_id, reference_id, policy_id),
+        )
+    app_conn.commit()
+
+    with app_conn.cursor() as cur, pytest.raises(psycopg.errors.UniqueViolation):
+        cur.execute(
+            """INSERT INTO promotion_requests
+               (id, agent_version_id, from_stage, to_stage, requested_by,
+                evaluation_run_reference_id, evaluation_policy_id)
+               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s)""",
+            (uuid.uuid4(), version_id, user_id, reference_id, policy_id),
+        )
+    app_conn.rollback()
 
 
 def test_only_one_active_grant_per_version_and_tool(app_conn):

@@ -18,3 +18,9 @@ Inspection of `agent-eval` confirmed it has **no policy or gate concept at all**
 ## Consequences
 
 Every promotion attempt does at least two extra live calls to `agent-eval` (current dataset hash, current evaluator catalog) before gates can be computed - an availability dependency documented in `docs/failure-modes.md`. In exchange, "why was this blocked" is always answerable with a specific criterion, not a guess.
+
+## Phase 4 update: freshness is checked live a second time, at decision time
+
+`check_freshness` (`app/services/freshness.py`) was written before a `PromotionRequest`/`PromotionDecision` approval flow existed, so "at promotion-request time" above was the only live check there was room for. Phase 4 adds a second, independent live recomputation immediately before a Reviewer's decision (`app/services/promotions.py::approve_promotion`) - "eligible when requested" and "eligible when reviewed" are both frozen, permanent facts (`docs/adrs/0018-promotion-request-immutability.md`), not the same check reused twice. Approval is blocked if evidence drifted stale in the gap between filing and review; rejection is never blocked by staleness (a Reviewer may reject for any reason) but still records what it saw, for the same audit reason.
+
+`check_freshness` also gained a `promotable_stages` parameter (default `{candidate}`, unchanged for the existing `GET .../candidacy` endpoint) so the same function can validate a `retired` version's evidence for rollback (`docs/adrs/0007-promotion-state-machine.md`'s Phase 4 update) without duplicating the freshness logic - which stage(s) are legally promotable at all is `app/services/promotions.py`'s own, separate concern from whether the evidence itself is still good.

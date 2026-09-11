@@ -21,6 +21,10 @@ ADRs for decisions with a real tradeoff - not written mechanically for every top
 | [0015](0015-evaluation-policy-immutability.md) | EvaluationPolicy is fully immutable, matching AgentVersion and SkillVersion | Accepted |
 | [0016](0016-agent-eval-deployment-decision.md) | Deploy Agent Evaluation Platform to Cloud Run now, as an independently owned service | Accepted |
 | [0017](0017-shared-cloud-sql-instance-isolated-database.md) | agent-eval shares ai-operations' Cloud SQL instance, in an isolated database | Accepted |
+| [0018](0018-promotion-request-immutability.md) | PromotionRequest captures full decision context; immutable except status | Accepted |
+| [0020](0020-promotion-lifecycle-event-outbox.md) | Transactional outbox for the promotion-lifecycle Pub/Sub event | Accepted |
+
+0007's rollback/concurrency decision and 0006's freshness decision were each amended in place for Phase 4 (see their own "Phase 4 update" sections) rather than duplicated into new records - the original decisions held, Phase 4 only had to make them concrete. 0019 was not used - amending 0007 covered that ground instead of a standalone record.
 
 ## Template
 

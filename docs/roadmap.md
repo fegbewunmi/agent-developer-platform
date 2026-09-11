@@ -35,14 +35,15 @@ Inspect `ai-operations`, `agent-eval`, `doc-qa`; design domain model, service bo
 - `draft → evaluating → candidate` lifecycle automation, live-verified against the real `incident-investigator` agent: a real ~4-minute evaluation on the deployed `agent-eval-api`, 11/11 gates passed, real `candidate` transition.
 - **Known, named gap carried forward**: `dataset_case_set_fingerprint` (the dataset-freshness proxy) cannot detect a dataset case's content changing in place - only structural changes (added/removed/renamed/re-tagged cases) - because `agent-eval`'s real API never exposes case content outside of a run response. See `docs/open-questions.md`.
 
-## Phase 4 - Promotion lifecycle, approvals, audit trail
+## Phase 4 - Promotion lifecycle, approvals, audit trail *(complete, see `docs/phase-notes/phase-4.md`)*
 
-`PromotionRequest`/`PromotionDecision` tables and the no-self-approval DB trigger already exist and are unit-tested (Phase 1) - Phase 4 builds the service/API layer that actually uses them, which doesn't exist yet.
+`PromotionRequest`/`PromotionDecision` tables and the no-self-approval DB trigger already existed and were unit-tested (Phase 1) - Phase 4 built the service/API layer that actually uses them.
 
-- `candidate → production` request/decision service and API, built on top of Phase 3's `check_freshness` (a `PromotionRequest` should be rejected outright, per [ADR-0008](adrs/0008-automated-gates-vs-human-approval.md), if `currently_eligible` is false at request time - this is the natural place Phase 3's freshness work plugs in).
-- Concurrent-promotion handling exercising the DB constraint that's been in place since Phase 1.
-- Pub/Sub outbox publication (not yet built - Phase 1-3 audit events are transactionally correct but only readable via direct query, never fanned out).
-- Rollback path (`retired → production` via a normal `PromotionRequest`).
+- `candidate → production` request/decision service and API (`app/services/promotions.py`), built on top of Phase 3's `check_freshness` - a `PromotionRequest` is rejected outright, per [ADR-0008](adrs/0008-automated-gates-vs-human-approval.md), if `currently_eligible` is false at request time, and freshness is re-checked live a **second** time at decision time ([ADR-0018](adrs/0018-promotion-request-immutability.md)).
+- Concurrent-promotion handling exercising the DB constraint that's been in place since Phase 1 - via a per-Agent `pg_advisory_xact_lock`, live-verified with a real two-session concurrency test ([ADR-0007](adrs/0007-promotion-state-machine.md)'s Phase 4 update).
+- Pub/Sub outbox publication - `OutboxEvent` (transactional outbox) + a real `agent-platform-events` topic, live-verified with a real publish and a real confirmed delivery ([ADR-0020](adrs/0020-promotion-lifecycle-event-outbox.md)). Scoped to `agent_version.promoted` only this phase, not the full audit-event catalog.
+- Rollback path (`retired → production` via a normal `PromotionRequest`) - live-verified end-to-end: a real `v2` promotion superseded a real `v1`, then `v1` was promoted again from `retired`, with full history preserved throughout.
+- **Known, named gap carried forward**: a standalone manual `candidate/draft → retired` "abandon" action was not built - out of the brief's actual Phase 4 scope, and not needed for any of this phase's required demonstrations (the only path to `retired` is automatic supersession). See [`evaluation-and-promotion.md`](evaluation-and-promotion.md) for detail.
 
 ## Phase 5 - Frontend / product workflows
 

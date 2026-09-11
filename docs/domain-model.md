@@ -63,16 +63,20 @@ A local pointer to a run that actually executed in `agent-eval`. `external_run_i
 The output of applying an `EvaluationPolicy` to an `EvaluationRunReference`'s fetched results. This is what makes gates explicit and inspectable instead of a black-box "quality score" - each row is one named criterion. `gate_type` is the criterion category (`min_dimension_score`, `required_evaluator_version`, `max_new_regressions`, `zero_failures_for_tag`, `min_completion_rate`, `capability_snapshot_consistency`); `reason` is a human-readable explanation on failure; `evidence_ref` carries structured pointers (e.g. `{"baseline_run_id": ..., "dimension": ...}`) back to the specific `agent-eval` evidence a gate used. See [`evaluation-and-promotion.md`](evaluation-and-promotion.md) for the full gate catalog, live-verified against a real deployed evaluation run.
 
 ### PromotionRequest
-`id, agent_version_id, from_stage, to_stage, requested_by, requested_at, evaluation_run_reference_id?, status, reason?`
-`status` is `pending/approved/rejected/withdrawn`. Concurrency-safe by design - see [`failure-modes.md`](failure-modes.md).
+`id, agent_version_id, from_stage, to_stage, requested_by, requested_at, evaluation_run_reference_id, evaluation_policy_id, capability_grant_snapshot_hash?, capability_grant_snapshot (jsonb)?, production_version_id_at_request?, freshness_snapshot (jsonb)?, status, reason?`
+A frozen snapshot of the full decision context at request time, not just `agent_version_id` - see [ADR-0018](adrs/0018-promotion-request-immutability.md). `evaluation_run_reference_id`/`evaluation_policy_id` are `NOT NULL` as of Phase 4 (migration `0014`) - a request without real cited evidence cannot exist. `capability_grant_snapshot_hash`/`capability_grant_snapshot` are a fresh ADR-0014 fingerprint taken *at request time*, independent of whatever hash the cited evaluation run itself recorded. `production_version_id_at_request` is historical context only, never re-read as current. `freshness_snapshot` is the full `check_freshness()` result at request time ("eligible when requested"). `status` is `pending/approved/rejected/withdrawn` (`withdrawn` defined but not used by any Phase 4 flow). Immutable at the DB level except `status` (column-level `GRANT`, migration `0015`). Concurrency-safe by design - see [`failure-modes.md`](failure-modes.md).
 
 ### PromotionDecision
-`id, promotion_request_id, decision, decided_by, decided_at, comment?`
-`decided_by != requested_by` is enforced at write time (no self-approval, no exceptions - see [`auth-and-approval-model.md`](auth-and-approval-model.md)).
+`id, promotion_request_id, decision, decided_by, decided_at, comment?, freshness_snapshot_at_decision (jsonb)?`
+`decided_by != requested_by` is enforced at write time and by a DB trigger (no self-approval, no exceptions - see [`auth-and-approval-model.md`](auth-and-approval-model.md)). `freshness_snapshot_at_decision` is a second, independent live `check_freshness()` recomputation, immediately before the decision - "eligible when reviewed," distinct from the request's own "eligible when requested" snapshot (ADR-0018). Fully immutable once created, like `AuditEvent`.
 
 ### AuditEvent
 `id, event_type, entity_type, entity_id, actor, occurred_at, payload (jsonb)`
 Append-only. See [`audit-model.md`](audit-model.md) for the full event catalog and the transactional-write guarantee.
+
+### OutboxEvent
+`id, event_type, entity_type, entity_id, payload (jsonb), created_at, published_at?, publish_error?`
+The transactional outbox for lifecycle events fanned out beyond this DB (Pub/Sub) - distinct from `AuditEvent`, which is this platform's own permanent, always-directly-queryable history regardless of whether anything downstream ever consumes it. Written in the same DB transaction as the domain change it describes; published as a separate, best-effort step after that transaction commits. See [ADR-0020](adrs/0020-promotion-lifecycle-event-outbox.md). Immutable except `published_at`/`publish_error` (column-level `GRANT`, migration `0016`).
 
 ## Entities considered and rejected
 

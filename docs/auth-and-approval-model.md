@@ -38,9 +38,10 @@ Per-team scoping (e.g. "Builder on AI Platform, Viewer everywhere else") was con
 | Create/edit `EvaluationPolicy` | | | | ✓ |
 | Register/edit `MCPServer` / `MCPTool` | | | | ✓ |
 | Manage users, teams, roles | | | | ✓ |
-| Emergency retire an `AgentVersion` | | | ✓ | ✓ |
+| Emergency retire an `AgentVersion` | | | ✓† | ✓† |
 
 \* Never the same user who created the `PromotionRequest` - see below.
+† `can_emergency_retire` exists in `app/services/permissions.py` but is not wired to any service/API action as of Phase 4 - the only way an `AgentVersion` reaches `retired` today is automatic supersession during a promotion (`app/services/promotions.py::approve_promotion`). A manual retire/abandon endpoint is a real, named gap - see [`evaluation-and-promotion.md`](evaluation-and-promotion.md)'s "Not built" note.
 
 ## No self-approval, ever
 

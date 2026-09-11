@@ -63,11 +63,19 @@ Gate computation is **atomic, not partial** - `app/services/gates.py::compute_ga
 
 ## Two reviewers attempt conflicting promotion decisions
 
-**Designed, not yet built - Phase 4.** `PromotionRequest`/`PromotionDecision` tables and the no-self-approval DB trigger exist since Phase 1, but no promotion-request/decision service or API exists yet. Design intent, to be implemented in Phase 4: `PromotionRequest.status` starts `pending`; a `PromotionDecision` write is a conditional update (`UPDATE promotion_requests SET status = ... WHERE id = ? AND status = 'pending'`). The second decision's conditional update affects zero rows; the API returns a conflict ("already decided by X at T") rather than silently overwriting.
+**Implemented and test-verified** (`app/services/promotions.py::approve_promotion`/`reject_promotion`, `tests/test_promotions.py::test_approve_promotion_already_decided_is_conflict`). Rather than a bare conditional `UPDATE` (the Phase 3-era design intent this section originally described), the actual mechanism is a `pg_advisory_xact_lock(hashtext(agent_id))` taken before re-reading `PromotionRequest.status` - see [`evaluation-and-promotion.md`](evaluation-and-promotion.md#concurrency-an-advisory-lock-not-serializable) for why an agent-scoped advisory lock, not a row-level conditional update, is the actual primitive (one decision can touch two `AgentVersionLifecycle` rows). Whichever decision acquires the lock first proceeds; the second re-reads `status` under the lock, sees it's no longer `pending`, and the API returns a `409` conflict ("already been decided") rather than silently overwriting or double-applying the production transition.
 
 ## Two versions attempt to become production concurrently
 
-**DB constraint implemented and unit-tested since Phase 1** (`tests/test_immutability.py`); the promotion *workflow* that would exercise it in practice is Phase 4. `UNIQUE (agent_id) WHERE stage = 'production'` partial index on `AgentVersionLifecycle` (stage lives on this separate, mutable control-plane table, not on the immutable `AgentVersion` row - see [`agent-versioning.md`](agent-versioning.md#the-stage-vs-content-split)) prevents two rows for the same agent both reaching `production`, verified directly against the real restricted DB role. The promote-and-retire-previous transaction logic itself is Phase 4 scope.
+**Implemented and live-verified against the real DB constraint** (`tests/test_promotions.py::test_concurrent_approvals_for_same_agent_only_one_ends_in_production` - two genuinely concurrent `approve_promotion` calls, separate sessions/connections, for two different candidates of the same `Agent`). `UNIQUE (agent_id) WHERE stage = 'production'` partial index on `AgentVersionLifecycle` remains the final DB-level backstop; the advisory lock above is the primary serialization mechanism, not `SERIALIZABLE` isolation (see [ADR-0007](adrs/0007-promotion-state-machine.md)'s Phase 4 update for why). Building this surfaced a real bug: retiring the previous production row and promoting the new one must be two separately-flushed statements, in that order, inside the one transaction - batching or reordering them can transiently violate the partial unique index even though the final state is valid, because Postgres checks it immediately per row, not deferred to transaction end.
+
+## Evidence goes stale between promotion request and decision
+
+**Implemented and live-verified against a real deployed target** (`tests/test_promotions.py::test_approve_promotion_blocked_by_stale_evidence_no_production_mutation`; `docs/phase-notes/phase-4.md`'s live demo 6 - a real capability granted on a real candidate version after a real `PromotionRequest` was filed against the real `ai-ops-center-eb26` dev DB). `check_freshness` is recomputed live a second time, immediately before the decision (`docs/adrs/0018-promotion-request-immutability.md`) - if it's no longer `currently_eligible`, approval is blocked (`409`, `promotion.approval_blocked_stale` audit event) with **zero** lifecycle mutation: the `AgentVersionLifecycle` row is never touched, `PromotionRequest.status` stays `pending`. Rejection is never blocked this way - a Reviewer may reject a still-pending request for any reason, staleness or otherwise.
+
+## A rejected or superseded promotion request needs a do-over
+
+**Implemented and test-verified** (`tests/test_promotions.py::test_reject_promotion_leaves_candidate_in_candidate`). A rejected `PromotionRequest`'s `AgentVersion` stays `candidate` - no `candidate -> draft` edge exists in the state machine ([ADR-0007](adrs/0007-promotion-state-machine.md)). A Builder may file a fresh `PromotionRequest` against the same version once the rejected one is no longer `pending` - the partial unique index (`UNIQUE (agent_version_id) WHERE status='pending'`, migration `0014`) only blocks a *second concurrently-pending* request, not a resubmission.
 
 ## An audit event cannot be persisted
 
@@ -77,12 +85,15 @@ Cannot happen independently of the state change it describes - `AuditEvent` rows
 
 | Guarantee | Mechanism | Status |
 |---|---|---|
-| At most one production version per Agent | DB partial unique index (on `AgentVersionLifecycle`) + serializable transaction | DB constraint live since Phase 1; promotion workflow is Phase 4 |
+| At most one production version per Agent | DB partial unique index (on `AgentVersionLifecycle`) + `pg_advisory_xact_lock` per Agent | Implemented and live-verified (real two-session concurrency proof), Phase 4 |
 | Audit record always exists for a persisted state change | Same-transaction write, no separate audit write path | Implemented and proven for Phase 1-3 writes |
-| No lost/overwritten promotion decisions | Conditional update on `status = 'pending'` | Phase 4 |
+| No lost/overwritten promotion decisions | `pg_advisory_xact_lock` per Agent, re-check `status='pending'` under the lock | Implemented and test-verified, Phase 4 |
 | Manifest never silently diverges from what was recorded | `AgentVersion` has no `UPDATE` grant at all - unconditional, not column-scoped | Implemented since Phase 1 |
 | Stage transitions never touch version content | `stage` lives on a separate table (`AgentVersionLifecycle`), never on `AgentVersion` | Implemented since Phase 1 |
 | Policy never silently diverges from what gated a run | `EvaluationPolicy` has no `UPDATE`/`DELETE` grant at all | Implemented since Phase 3, [ADR-0015](adrs/0015-evaluation-policy-immutability.md) |
 | A completed run is never double-processed | Atomic conditional claim (`status='requested' → 'dispatched'`) before any work begins | Implemented and test-verified, Phase 3 |
 | An external agent-eval success is never silently lost | `external_run_id` preserved even when local persistence fails afterward | Implemented and test-verified, Phase 3 |
 | "Passed at the time" and "valid for promotion now" are never conflated | `EvaluationGateResult.passed` is permanent; `check_freshness` recomputes eligibility live, every call | Implemented and live-verified against real data, Phase 3 |
+| "Eligible when requested" and "eligible when reviewed" are never conflated | Independent, frozen `freshness_snapshot` (request) and `freshness_snapshot_at_decision` (decision) | Implemented and live-verified against real data, Phase 4 |
+| A promotion is never partially applied | Retire-then-promote as two flushes in one transaction; commit is all-or-nothing | Implemented, and the specific ordering was proven necessary by a real constraint violation caught in testing, Phase 4 |
+| A promotion-lifecycle event is never published before its transaction commits | Transactional outbox (`OutboxEvent`), publish strictly after `commit()` | Implemented and live-verified (real Pub/Sub publish + real delivery), Phase 4, [ADR-0020](adrs/0020-promotion-lifecycle-event-outbox.md) |

@@ -80,12 +80,30 @@ async def _latest_historically_passing_reference(
     return None
 
 
+_DEFAULT_PROMOTABLE_STAGES = frozenset({Stage.CANDIDATE})
+
+
 async def check_freshness(
     db: AsyncSession,
     agent_eval_client: AgentEvalClient,
     agent_version_id: uuid.UUID,
     agent_name: str,
+    *,
+    promotable_stages: frozenset[Stage] = _DEFAULT_PROMOTABLE_STAGES,
 ) -> FreshnessResult:
+    """promotable_stages: which AgentVersionLifecycle.stage values count as
+    "this version's own stage doesn't block promotion" for currently_eligible.
+    Defaults to {candidate} (the GET .../candidacy endpoint's original Phase 3
+    meaning, unchanged). Phase 4's rollback path
+    (docs/evaluation-and-promotion.md's `retired -> production`) needs the
+    SAME evidence-freshness check applied to a retired version, so
+    app/services/promotions.py passes {candidate, retired} here - this
+    function stays the single source of truth for "is the evidence itself
+    still good," while whether a stage may legally receive a PromotionRequest
+    at all is app/services/promotions.py's own, separate check (the brief's
+    "verify candidate lifecycle state" step is deliberately distinct from
+    freshness).
+    """
     lifecycle = (
         await db.execute(
             select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_version_id == agent_version_id)
@@ -174,7 +192,7 @@ async def check_freshness(
             )
         )
 
-    currently_eligible = lifecycle.stage == Stage.CANDIDATE and len(findings) == 0
+    currently_eligible = lifecycle.stage in promotable_stages and len(findings) == 0
 
     return FreshnessResult(
         agent_version_id=str(agent_version_id),

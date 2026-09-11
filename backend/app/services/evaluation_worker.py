@@ -154,6 +154,7 @@ async def _mark_failed(db, reference: EvaluationRunReference, agent: Agent, acto
     ).scalar_one()
     lifecycle.stage = Stage.DRAFT
     lifecycle.entered_by = actor_id
+    lifecycle.entered_at = datetime.now(timezone.utc)
 
     record_audit_event(
         db,
@@ -223,6 +224,7 @@ async def _persist_success(
     ).scalar_one()
     lifecycle.stage = Stage.CANDIDATE if all_passed else Stage.DRAFT
     lifecycle.entered_by = actor_id
+    lifecycle.entered_at = datetime.now(timezone.utc)
 
     record_audit_event(
         db,

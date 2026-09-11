@@ -26,6 +26,7 @@ dependencies = [
 
     "google-auth>=2.35.0",
     "google-cloud-tasks>=2.16.0",
+    "google-cloud-pubsub>=2.23.0",
 ]
 
 [project.optional-dependencies]

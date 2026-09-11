@@ -5,6 +5,7 @@ from functools import lru_cache
 
 from app.config import settings
 from app.integrations.agent_eval_client import HttpAgentEvalClient, default_id_token_provider
+from app.services.event_publisher import EventPublisher, LocalNoopPublisher, PubSubPublisher
 from app.services.job_dispatch import CloudTasksDispatcher, JobDispatcher, LocalSyncDispatcher
 
 
@@ -38,3 +39,13 @@ def get_job_dispatcher() -> JobDispatcher:
         await process_evaluation_job(reference_id, client)
 
     return LocalSyncDispatcher(worker_fn=_worker)
+
+
+@lru_cache
+def get_event_publisher() -> EventPublisher:
+    if settings.event_publish_mode == "pubsub":
+        assert settings.pubsub_project and settings.pubsub_topic, (
+            "pubsub_project and pubsub_topic are required when event_publish_mode=pubsub"
+        )
+        return PubSubPublisher(project=settings.pubsub_project, topic=settings.pubsub_topic)
+    return LocalNoopPublisher()

@@ -106,7 +106,7 @@ See the full enumeration of stale-evidence and unavailable-dependency scenarios 
 draft → evaluating → candidate → production → retired
 ```
 
-**Implemented through `candidate` this phase.** `candidate → production` (human `PromotionRequest`/`PromotionDecision` approval) is Phase 4 scope - the tables and no-self-approval DB trigger already exist (Phase 1), but no request/decision service or API exists yet.
+**Fully implemented as of Phase 4.** `candidate → production` (human `PromotionRequest`/`PromotionDecision` approval), rollback, and auto-retire-on-supersession all exist (`app/services/promotions.py`). `candidate/production → retired` as an explicit *manual abandon/retire* action (independent of supersession) is the one edge from Phase 0's original diagram not built - see the scope note below.
 
 ### Diagram: promotion state machine
 
@@ -117,11 +117,9 @@ stateDiagram-v2
     evaluating --> evaluating: re-run requested\n(e.g. after infra flakiness) (implemented)
     evaluating --> candidate: automated - all gates pass (implemented, live-verified)
     evaluating --> draft: automated - gate(s) fail,\nor agent-eval unavailable/timeout/malformed response\n(implemented, live-verified: real gate failure observed)
-    candidate --> production: PromotionRequest approved\n(Reviewer/Admin, not requester) - PHASE 4, NOT BUILT
-    candidate --> retired: abandoned - PHASE 4
-    draft --> retired: abandoned - PHASE 4
-    production --> retired: automatic on supersession,\nor manual retirement - PHASE 4
-    retired --> production: rollback = a new PromotionRequest\nfor this old immutable version - PHASE 4
+    candidate --> production: PromotionRequest approved\n(Reviewer/Admin, not requester) (implemented, live-verified)
+    production --> retired: automatic on supersession\n(implemented, live-verified)
+    retired --> production: rollback = a new PromotionRequest\nfor this old immutable version (implemented, live-verified)
 ```
 
 ### Legal transitions and who can request them
@@ -131,16 +129,29 @@ stateDiagram-v2
 | `draft/evaluating → evaluating` | Request an evaluation | Builder (own team), Reviewer, Admin | none | Implemented, live-verified |
 | `evaluating → candidate` | Automated | System (gate evaluator) | all `EvaluationGateResult`s pass | Implemented, live-verified |
 | `evaluating → draft` | Automated | System | any gate fails, or agent-eval call fails | Implemented, live-verified |
-| `candidate → production` | `PromotionRequest` approved | Requested by Builder/Reviewer/Admin; approved by Reviewer/Admin **who is not the requester** | fresh, passing gate results cited on the request | **Phase 4** |
-| `candidate → retired` | Abandon | Builder (own team), Reviewer, Admin | none | **Phase 4** |
-| `production → retired` | Retire or superseded | Admin, Reviewer (manual); automatic on a new promotion | none | **Phase 4** |
-| `retired → production` | Rollback | Same as `candidate → production` | see [`open-questions.md`](open-questions.md) | **Phase 4** |
+| `candidate → production` | `PromotionRequest` approved | Requested by Builder/Reviewer/Admin; approved by Reviewer/Admin **who is not the requester** | fresh, passing gate results cited on the request; re-checked live again at decision time | Implemented, live-verified |
+| `production → retired` | Automatic, on a new promotion superseding it | System, as part of the new promotion's transaction | none | Implemented, live-verified |
+| `retired → production` | Rollback - an ordinary `PromotionRequest` for this old immutable version | Same as `candidate → production` | same as `candidate → production`, no exception (`docs/open-questions.md` #2, resolved) | Implemented, live-verified |
 
 `candidate/production/retired` versions cannot have a new evaluation requested against them (`app/services/evaluations.py::_REQUESTABLE_STAGES = {DRAFT, EVALUATING}`) - live and test-verified to return `409`. A version stuck in `candidate` that later needs re-validation goes through the ordinary route: a new `AgentVersion`.
 
+**Not built: a standalone, manual `candidate/draft → retired` "abandon" action.** Phase 0's diagram included it; the Phase 4 brief's actual scope (promotion requests, review, production promotion, rollback, audit) didn't ask for it, and every scenario this phase needed to demonstrate (including rollback, which needs a `retired` version to roll back *to*) is reachable through `production → retired` supersession alone. The only way to reach `retired` as of Phase 4 is by being superseded after having been `production` - a `candidate` that's simply abandoned (never promoted) has no way to leave `candidate` yet other than a fresh `AgentVersion` superseding it in spirit (the old one just stays `candidate`, inert). A small, real gap, not a silent one - worth adding if a real workflow need for it shows up.
+
+### Decision-time freshness: "eligible when requested" vs "eligible when reviewed"
+
+Freshness (`app/services/freshness.py::check_freshness`) is checked live **twice**, not once: at `PromotionRequest` creation (blocking the request outright if not currently eligible - `docs/adrs/0008-automated-gates-vs-human-approval.md`), and again, independently, immediately before a Reviewer's `approve`/`reject` decision. Both results are frozen, permanent facts - `PromotionRequest.freshness_snapshot` and `PromotionDecision.freshness_snapshot_at_decision` respectively (`docs/adrs/0018-promotion-request-immutability.md`). If evidence drifts stale in the gap between filing and review (a capability grant revoked, the policy superseded, an evaluator version bumped), **approval is blocked** - `ConflictError`, a `promotion.approval_blocked_stale` audit event, and no lifecycle mutation whatsoever. Nothing is silently rerun or auto-invalidated: the request simply stays `pending` until a Reviewer explicitly rejects it (rejection is never blocked by staleness - a Reviewer may reject for any reason, and the freshness snapshot is still recorded for auditability even then).
+
+### Concurrency: an advisory lock, not `SERIALIZABLE`
+
+Two decisions racing to promote different candidates of the same `Agent` (or double-deciding the same request) are serialized via `pg_advisory_xact_lock(hashtext(agent_id))`, taken at the start of `approve_promotion`/`reject_promotion` before re-reading the request's status - not a row-level `SELECT ... FOR UPDATE` (one approval can touch two `AgentVersionLifecycle` rows: the newly-promoted version's and the previously-production version's, and the latter may not exist yet when the lock must already be held) and not `SERIALIZABLE` isolation (the hazard is a plain concurrent-UPDATE conflict, not a phantom-read anomaly, so the retry-loop machinery `SERIALIZABLE` requires isn't needed). The partial unique index (`UNIQUE (agent_id) WHERE stage='production'`) remains the final DB-level backstop. See [ADR-0007](adrs/0007-promotion-state-machine.md)'s Phase 4 update for the real bug this surfaced (retiring the old production row and promoting the new one must be two separately-flushed statements, in that order - Postgres checks the partial unique index immediately per row, not deferred to transaction end) and `tests/test_promotions.py::test_concurrent_approvals_for_same_agent_only_one_ends_in_production` for the real two-session proof.
+
+### Promotion lifecycle events
+
+`agent_version.promoted` is fanned out via a transactional outbox (`OutboxEvent`, written in the same transaction as the production transition) to a real Pub/Sub topic (`agent-platform-events`, per [ADR-0011](adrs/0011-pubsub-vs-cloud-tasks.md)) - see [ADR-0020](adrs/0020-promotion-lifecycle-event-outbox.md) for the pattern and what was live-verified (real publish, real delivery confirmed via a real subscription pull). No real subscriber service exists yet, same open gap as Cloud Tasks' evaluation-dispatch queue.
+
 ### Only one production version per Agent
 
-Unchanged from Phase 1/2: `UNIQUE (agent_id) WHERE stage = 'production'` on `AgentVersionLifecycle`. Not yet exercised end-to-end in Phase 3 since nothing reaches `production` until Phase 4.
+Unchanged from Phase 1/2: `UNIQUE (agent_id) WHERE stage = 'production'` on `AgentVersionLifecycle`. Exercised end-to-end in Phase 4 - see the concurrency section above and `docs/phase-notes/phase-4.md`'s live verification (a real production supersession and a real rollback both went through this exact constraint).
 
 ## Live verification summary
 

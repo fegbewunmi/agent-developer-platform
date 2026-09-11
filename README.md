@@ -6,27 +6,25 @@ This is **not** an agent runtime. It does not execute agents, does not run evalu
 
 ## Screenshots
 
-Real UI, real data - captured from the actual **deployed** Cloud Run frontend/backend/database, signed in via real Identity Platform authentication, not mockups or a local dev server.
-
-**Overview** (deployed) - live counts and a "Needs Attention" list, every item backed by real backend state:
+**Overview** - live counts and a "Needs Attention" list:
 
 ![Overview dashboard, deployed](docs/screenshots/overview-deployed.jpg)
 
-**Promotion review** (deployed) - the freshness UX differentiator, on the actual review screen: "eligible when requested" (frozen) vs. "eligible now" (live, recomputed) shown side by side, with the real before/after capability-grant hash that made it go stale - a historically-passing evaluation is never retroactively marked as failed:
+**Promotion review**  - the freshness UX differentiator, on the actual review screen: "eligible when requested" (frozen) vs. "eligible now" (live, recomputed) shown side by side, with the before/after capability-grant hash that made it go stale - a historically-passing evaluation is never retroactively marked as failed:
 
 ![Promotion review showing eligible-when-requested vs eligible-now](docs/screenshots/promotion-review-freshness-deployed.jpg)
 
-**MCP registry** (deployed) - a real, live HTTP health check against the actual Incident Operations backend, not a simulated status:
+**MCP registry** - an HTTP health check against the Incident Operations backend:
 
 ![MCP registry showing a live-checked healthy server](docs/screenshots/mcp-registry-deployed.jpg)
 
-**AgentVersion detail** (local dev, Phase 5) - the same freshness distinction on the version reproducibility page:
+**AgentVersion detail**  - the same freshness distinction on the version reproducibility page:
 
 ![AgentVersion detail showing the freshness/eligibility distinction](docs/screenshots/agent-version-detail-freshness.jpg)
 
 ## Running it
 
-**Deployed**: the real, live instance runs on Cloud Run - see [`docs/gcp-architecture.md`](docs/gcp-architecture.md) for the topology and [`docs/phase-notes/phase-6.md`](docs/phase-notes/phase-6.md) for the deployment record. Service URLs are internal (Identity Platform-gated); ask a team member for access rather than assuming a public URL in these docs is meant for direct browsing.
+**Deployed**: the live instance runs on Cloud Run - see [`docs/gcp-architecture.md`](docs/gcp-architecture.md) for the topology and [`docs/phase-notes/phase-6.md`](docs/phase-notes/phase-6.md) for the deployment record. Service URLs are internal (Identity Platform-gated); ask a team member for access rather than assuming a public URL in these docs is meant for direct browsing.
 
 **Locally**: Backend (FastAPI + Postgres): see `backend/README.md` for the real dev-login flow and environment variables. Frontend (Next.js): `cd frontend && npm install && npm run dev`, pointed at the backend via `BACKEND_API_URL` in `frontend/.env.local`. Sign in at `/login` as one of the four seeded Orion Commerce users - see [`docs/frontend-architecture.md`](docs/frontend-architecture.md) for how that auth flow is real, not mocked. `dev-login` is local-only by design - the deployed environment always uses real Identity Platform password sign-in (`docs/auth-and-approval-model.md`).
 
@@ -41,8 +39,6 @@ This platform is designed against the **actual, inspected contracts** of three e
 - **[Incident Investigation Platform](../ai-operations)** (`ai-operations`) - a live LangGraph + Vertex AI Gemini multi-agent system on Cloud Run. Treated as the first real managed agent (`incident-investigator`).
 - **Incident Operations MCP server** (`ai-operations/mcp_server`) - a FastMCP stdio server exposing 4 tools (3 read-only, 1 write/approval-gated) as a thin wrapper over the Incident Investigation Platform's API. Treated as the first governed MCP integration.
 - **[Agent Evaluation Platform](../agent-eval)** (`agent-eval`) - an independent FastAPI/Postgres service with a real `Agent`/`AgentVersion`/`Evaluator` model. Treated as the external source of truth for evaluation execution; this platform never re-implements evaluators, datasets, or regression logic.
-
-`doc-qa` (Document Q&A) was evaluated and found **not** to be a relevant integration boundary - see [`docs/product-overview.md`](docs/product-overview.md#evaluated-and-excluded-doc-qa). It is a local, unauthenticated, unversioned single-document demo with no MCP or programmatic interface.
 
 Where these systems have real gaps (no auth, a synchronous-only evaluation API, a non-server-enforced tool-approval gate), this platform's design accounts for the gap rather than pretending it doesn't exist. See [`docs/failure-modes.md`](docs/failure-modes.md).
 
@@ -72,8 +68,4 @@ Where these systems have real gaps (no auth, a synchronous-only evaluation API, 
 
 ## Sample organization: Orion Commerce
 
-Seeded (not real) teams, users, and agents used throughout the docs and, later, the seed data - see [`docs/product-overview.md`](docs/product-overview.md#orion-commerce-sample-organization) for the full roster. Only the Incident Investigator is a real runtime integration; the Customer Support Agent and Release Risk Agent are representative platform data, clearly marked as such wherever they appear.
-
-## Non-goals
-
-This platform does not build: a generic agent runtime, a replacement for the Agent Evaluation Platform, a replacement MCP implementation, Kubernetes orchestration, billing, a marketplace, workflow builders, multi-cloud abstraction, enterprise IAM, or model hosting. See [`docs/control-plane-boundaries.md`](docs/control-plane-boundaries.md) for the reasoning.
+Seeded teams, users, and agents used throughout the docs and, later, the seed data - see [`docs/product-overview.md`](docs/product-overview.md#orion-commerce-sample-organization) for the full roster. Only the Incident Investigator is a real runtime integration; the Customer Support Agent and Release Risk Agent are representative platform data, clearly marked as such wherever they appear.

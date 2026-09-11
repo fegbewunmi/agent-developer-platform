@@ -18,6 +18,7 @@ export function EvaluationSection({
   latestEvaluation,
   gates,
   canRequest,
+  defaultExternalAgentVersionId,
 }: {
   agentId: string;
   versionId: string;
@@ -26,6 +27,9 @@ export function EvaluationSection({
   latestEvaluation: EvaluationRunReference | null;
   gates: GateResult[];
   canRequest: boolean;
+  /** Phase 7: pre-fills (and is the only value the backend will accept for)
+   * the public demo's evaluation target - null for every non-demo Agent. */
+  defaultExternalAgentVersionId?: string | null;
 }) {
   const router = useRouter();
   const isInFlight = latestEvaluation && (latestEvaluation.status === "requested" || latestEvaluation.status === "dispatched");
@@ -43,7 +47,11 @@ export function EvaluationSection({
     <Panel
       title="Evaluation"
       subtitle="Automated gates, computed once per run - never a single blended score"
-      actions={canRequest && REQUESTABLE_STAGES.includes(stage) ? <RequestEvaluationForm agentId={agentId} versionId={versionId} /> : undefined}
+      actions={
+        canRequest && REQUESTABLE_STAGES.includes(stage) ? (
+          <RequestEvaluationForm agentId={agentId} versionId={versionId} defaultExternalAgentVersionId={defaultExternalAgentVersionId} />
+        ) : undefined
+      }
     >
       {evaluations.length === 0 ? (
         <EmptyState title="No evaluation runs yet" detail={canRequest ? "Request one above." : undefined} />
@@ -124,7 +132,15 @@ export function GateRow({ gate }: { gate: GateResult }) {
   );
 }
 
-function RequestEvaluationForm({ agentId, versionId }: { agentId: string; versionId: string }) {
+function RequestEvaluationForm({
+  agentId,
+  versionId,
+  defaultExternalAgentVersionId,
+}: {
+  agentId: string;
+  versionId: string;
+  defaultExternalAgentVersionId?: string | null;
+}) {
   const [open, setOpen] = useState(false);
   const boundAction = requestEvaluationAction.bind(null, agentId, versionId);
   const [state, formAction, pending] = useActionState<ActionResult, FormData>(boundAction, { ok: true });
@@ -142,8 +158,11 @@ function RequestEvaluationForm({ agentId, versionId }: { agentId: string; versio
       <input
         name="external_agent_version_id"
         required
+        defaultValue={defaultExternalAgentVersionId ?? undefined}
+        readOnly={!!defaultExternalAgentVersionId}
         placeholder="agent-eval AgentVersion ID"
-        className="w-56 rounded-md border border-border bg-bg-inset px-2 py-1 text-[12px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none"
+        title={defaultExternalAgentVersionId ? "The public demo always evaluates against this fixed, safe target." : undefined}
+        className="w-56 rounded-md border border-border bg-bg-inset px-2 py-1 text-[12px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none read-only:text-text-faint"
       />
       <button type="submit" disabled={pending} className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-white hover:bg-accent/90 disabled:opacity-50">
         {pending ? "Submitting…" : "Submit"}

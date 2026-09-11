@@ -100,7 +100,9 @@ async def request_promotion(
 ) -> PromotionRequest:
     version, agent = await _get_agent_version_and_agent(db, agent_version_id)
 
-    if not permissions.can_request_promotion(actor, agent.team_id):
+    if not permissions.can_request_promotion(actor, agent.team_id) or not permissions.demo_containment_ok(
+        actor, agent.team_id
+    ):
         raise PermissionDeniedError("not authorized to request a promotion for this agent")
 
     lifecycle = await _get_lifecycle(db, agent_version_id)
@@ -221,6 +223,9 @@ async def approve_promotion(
         raise PermissionDeniedError("not authorized to decide this promotion request")
 
     version, agent = await _get_agent_version_and_agent(db, request.agent_version_id)
+
+    if not permissions.demo_containment_ok(actor, agent.team_id):
+        raise PermissionDeniedError("not authorized to decide this promotion request")
 
     # Serialize every decision touching this Agent's production slot. An
     # advisory lock keyed on the Agent (not a row-level FOR UPDATE on any
@@ -426,6 +431,9 @@ async def reject_promotion(
 
     version, agent = await _get_agent_version_and_agent(db, request.agent_version_id)
 
+    if not permissions.demo_containment_ok(actor, agent.team_id):
+        raise PermissionDeniedError("not authorized to decide this promotion request")
+
     # Same lock as approve_promotion - a reject and an approve racing for the
     # same request must not both succeed.
     await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:agent_id))"), {"agent_id": str(agent.id)})
@@ -497,7 +505,7 @@ async def get_promotion_decision(db: AsyncSession, promotion_request_id: uuid.UU
 
 
 async def list_promotion_requests(
-    db: AsyncSession, *, status: PromotionRequestStatus | None = None, limit: int = 100
+    db: AsyncSession, *, status: PromotionRequestStatus | None = None, limit: int = 100, actor: User | None = None
 ) -> list[PromotionRequest]:
     """Phase 5: the reviewer queue needs every pending request across every
     Agent, not scoped to one version (list_promotion_requests_for_version)
@@ -506,10 +514,26 @@ async def list_promotion_requests(
     Read access is universal, same as every other list endpoint; the
     frontend applies self-approval/role-based action visibility, backed by
     the real can_decide_promotion check at approve/reject time regardless.
+
+    Phase 7: when `actor` is given, applies the same demo/non-demo bucket
+    split as app/services/dashboard.py - a demo actor's queue shows only the
+    demo agent's requests; a real Orion actor's queue never shows the demo
+    agent's, preserving real cross-team reviewer visibility otherwise.
+    `actor=None` (the two other callers below, scoped to one version/Agent
+    already) keeps the old, unfiltered behavior.
     """
     stmt = select(PromotionRequest)
     if status is not None:
         stmt = stmt.where(PromotionRequest.status == status)
+    if actor is not None:
+        from app.services import permissions
+
+        demo_team = permissions.demo_team_uuid()
+        if demo_team is not None:
+            stmt = stmt.join(AgentVersion, AgentVersion.id == PromotionRequest.agent_version_id).join(
+                Agent, Agent.id == AgentVersion.agent_id
+            )
+            stmt = stmt.where(Agent.team_id == demo_team if actor.team_id == demo_team else Agent.team_id != demo_team)
     stmt = stmt.order_by(PromotionRequest.requested_at.desc()).limit(min(limit, 200))
     result = await db.execute(stmt)
     return list(result.scalars().all())

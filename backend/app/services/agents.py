@@ -71,7 +71,9 @@ async def create_agent_version(
     """
     agent = await get_agent(db, agent_id)
 
-    if not permissions.can_create_agent(actor, agent.team_id):
+    if not permissions.can_create_agent(actor, agent.team_id) or not permissions.demo_containment_ok(
+        actor, agent.team_id
+    ):
         raise PermissionDeniedError("not authorized to create a version for this agent")
 
     resolved = await resolve_manifest(db, agent, manifest)

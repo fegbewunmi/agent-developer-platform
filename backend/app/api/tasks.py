@@ -13,9 +13,13 @@ import logging
 import uuid
 
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.auth.cloud_tasks import CloudTasksAuth
+from app.db.session import get_db
 from app.dependencies import get_agent_eval_client, get_event_publisher
+from app.integrations.agent_eval_client import AgentEvalClient
+from app.services import demo as demo_service
 from app.services.event_publisher import EventPublisher, sweep_unpublished_outbox_events
 from app.services.evaluation_worker import process_evaluation_job
 
@@ -44,3 +48,13 @@ async def sweep_outbox(event_publisher: EventPublisher = Depends(get_event_publi
     See app/services/event_publisher.py::sweep_unpublished_outbox_events.
     """
     return await sweep_unpublished_outbox_events(event_publisher)
+
+
+@router.post("/demo/reset", dependencies=[CloudTasksAuth])
+async def reset_demo(
+    db: AsyncSession = Depends(get_db), agent_eval_client: AgentEvalClient = Depends(get_agent_eval_client)
+) -> dict:
+    """Cloud Scheduler HTTP target - the recurring half of the public demo
+    reset; see app/services/demo.py::reset_demo_environment. The on-demand,
+    Admin-authenticated half is POST /v1/demo/reset (app/api/demo.py)."""
+    return await demo_service.reset_demo_environment(db, agent_eval_client)

@@ -22,9 +22,13 @@ This is **not** an agent runtime. It does not execute agents, does not run evalu
 
 ![AgentVersion detail showing the freshness/eligibility distinction](docs/screenshots/agent-version-detail-freshness.jpg)
 
+## Try it live
+
+The deployed instance has a real, public demo - no account needed. Open the login page and click **"Continue as demo Builder"** or **"Continue as demo Reviewer"**: a real Identity Platform sign-in happens server-side and drops you into a sandboxed Agent where you can create/evaluate/promote/review for real, without ever touching the curated Orion Commerce data those screenshots above come from. See [ADR-0022](docs/adrs/0022-public-demo-sandbox.md) and [`docs/phase-notes/phase-7.md`](docs/phase-notes/phase-7.md) for how the sandbox stays contained (spoiler: the real backend authorization model, not a mocked frontend).
+
 ## Running it
 
-**Deployed**: the live instance runs on Cloud Run - see [`docs/gcp-architecture.md`](docs/gcp-architecture.md) for the topology and [`docs/phase-notes/phase-6.md`](docs/phase-notes/phase-6.md) for the deployment record. Service URLs are internal (Identity Platform-gated); ask a team member for access rather than assuming a public URL in these docs is meant for direct browsing.
+**Deployed**: the live instance runs on Cloud Run - see [`docs/gcp-architecture.md`](docs/gcp-architecture.md) for the topology and [`docs/phase-notes/phase-6.md`](docs/phase-notes/phase-6.md) for the deployment record. Beyond the public demo above, the full seeded Orion Commerce organization requires a real account - ask a team member for access rather than assuming a public URL in these docs is meant for unrestricted browsing.
 
 **Locally**: Backend (FastAPI + Postgres): see `backend/README.md` for the real dev-login flow and environment variables. Frontend (Next.js): `cd frontend && npm install && npm run dev`, pointed at the backend via `BACKEND_API_URL` in `frontend/.env.local`. Sign in at `/login` as one of the four seeded Orion Commerce users - see [`docs/frontend-architecture.md`](docs/frontend-architecture.md) for how that auth flow is real, not mocked. `dev-login` is local-only by design - the deployed environment always uses real Identity Platform password sign-in (`docs/auth-and-approval-model.md`).
 

@@ -38,6 +38,7 @@ from app.models.identity import User
 from app.models.mcp import MCPServer
 from app.models.enums import MCPHealthStatus
 from app.services import audit as audit_service
+from app.services import permissions
 from app.services import promotions as promotions_service
 from app.services.freshness import FreshnessResult, check_freshness
 
@@ -63,21 +64,45 @@ async def _check_freshness_own_session(
         return None
 
 
-async def _lifecycle_rows(db: AsyncSession, stage: Stage) -> list[tuple[AgentVersionLifecycle, AgentVersion, Agent]]:
-    rows = await db.execute(
+def _demo_visibility_clause(actor: User):
+    """Binary demo/non-demo bucket, not a per-team filter: a demo actor sees
+    only the demo team's own agent; every real Orion user sees everything
+    EXCEPT the demo team's agent, preserving the existing cross-team
+    visibility real Reviewers/Admins rely on (ADR-0010). Keeps the curated
+    dashboard and reviewer queue free of public-demo noise. Returns None
+    (no filter) when the demo isn't configured - unchanged behavior for
+    every environment before Phase 7."""
+    demo_team = permissions.demo_team_uuid()
+    if demo_team is None:
+        return None
+    if actor.team_id == demo_team:
+        return Agent.team_id == demo_team
+    return Agent.team_id != demo_team
+
+
+async def _lifecycle_rows(
+    db: AsyncSession, stage: Stage, *, actor: User
+) -> list[tuple[AgentVersionLifecycle, AgentVersion, Agent]]:
+    stmt = (
         select(AgentVersionLifecycle, AgentVersion, Agent)
         .join(AgentVersion, AgentVersion.id == AgentVersionLifecycle.agent_version_id)
         .join(Agent, Agent.id == AgentVersionLifecycle.agent_id)
         .where(AgentVersionLifecycle.stage == stage)
     )
+    clause = _demo_visibility_clause(actor)
+    if clause is not None:
+        stmt = stmt.where(clause)
+    rows = await db.execute(stmt)
     return list(rows.all())
 
 
 async def get_dashboard_summary(db: AsyncSession, agent_eval_client: AgentEvalClient, *, actor: User) -> dict:
-    production_rows = await _lifecycle_rows(db, Stage.PRODUCTION)
-    candidate_rows = await _lifecycle_rows(db, Stage.CANDIDATE)
+    production_rows = await _lifecycle_rows(db, Stage.PRODUCTION, actor=actor)
+    candidate_rows = await _lifecycle_rows(db, Stage.CANDIDATE, actor=actor)
 
-    pending_requests = await promotions_service.list_promotion_requests(db, status=PromotionRequestStatus.PENDING)
+    pending_requests = await promotions_service.list_promotion_requests(
+        db, status=PromotionRequestStatus.PENDING, actor=actor
+    )
     my_reviewable = [
         r for r in pending_requests if actor.role in (Role.REVIEWER, Role.ADMIN) and r.requested_by != actor.id
     ]
@@ -194,7 +219,13 @@ async def get_dashboard_summary(db: AsyncSession, agent_eval_client: AgentEvalCl
             }
         )
 
-    recent_activity = await audit_service.list_audit_events(db, limit=15)
+    # Phase 7: the global feed is real internal Orion Commerce activity - a
+    # public demo actor never sees it here (AuditEvent has no team column to
+    # filter by cheaply, and the point of this widget for a demo visitor is
+    # "what have I/other demo visitors done," not the whole org's history).
+    # A real Orion actor's feed is unfiltered, unchanged from Phase 5 - full
+    # transparency for trusted internal staff, including any demo activity.
+    recent_activity = [] if permissions.is_demo_actor(actor) else await audit_service.list_audit_events(db, limit=15)
 
     return {
         "counts": {

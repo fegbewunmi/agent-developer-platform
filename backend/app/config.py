@@ -64,5 +64,17 @@ class Settings(BaseSettings):
     pubsub_project: str | None = None
     pubsub_topic: str | None = None
 
+    # Public demo sandbox (Phase 7) - see app/services/demo.py and
+    # docs/adrs/0022-public-demo-sandbox.md. Unset (None) means the demo
+    # containment/rate-limit checks are all no-ops, matching every
+    # environment before this feature existed (local dev, tests).
+    demo_team_id: str | None = None
+    # The only agent-eval target demo evaluation requests may invoke - a
+    # lightweight stub run, never a real/expensive one. Requests naming any
+    # other target are rejected outright for demo actors.
+    demo_external_agent_version_id: str | None = None
+    demo_eval_cooldown_seconds: int = 30
+    demo_eval_concurrency_cap: int = 3
+
 
 settings = Settings()

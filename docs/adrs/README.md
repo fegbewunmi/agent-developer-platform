@@ -24,6 +24,7 @@ ADRs for decisions with a real tradeoff - not written mechanically for every top
 | [0018](0018-promotion-request-immutability.md) | PromotionRequest captures full decision context; immutable except status | Accepted |
 | [0020](0020-promotion-lifecycle-event-outbox.md) | Transactional outbox for the promotion-lifecycle Pub/Sub event | Accepted |
 | [0021](0021-cloud-tasks-application-level-push-auth.md) | Cloud Tasks push authentication verified in application code, not Cloud Run ingress IAM | Accepted |
+| [0022](0022-public-demo-sandbox.md) | Public demo sandbox reuses the real authorization model with one additive containment rule | Accepted |
 
 0007's rollback/concurrency decision and 0006's freshness decision were each amended in place for Phase 4 (see their own "Phase 4 update" sections) rather than duplicated into new records - the original decisions held, Phase 4 only had to make them concrete. 0019 was not used - amending 0007 covered that ground instead of a standalone record.
 

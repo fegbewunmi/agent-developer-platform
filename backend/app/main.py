@@ -6,6 +6,7 @@ from app.api import (
     audit,
     capability_grants,
     dashboard,
+    demo,
     evaluation_policies,
     evaluations,
     health,
@@ -62,6 +63,7 @@ app.include_router(promotions.router)
 app.include_router(audit.router)
 app.include_router(dashboard.router)
 app.include_router(tasks.router)
+app.include_router(demo.router)
 
 if settings.auth_jwks_file:
     # Dev-only browser login - see app/api/dev_auth.py's module docstring.

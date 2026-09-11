@@ -122,13 +122,14 @@ async def _enrich_with_context(db: AsyncSession, requests: list[PromotionRequest
 @router.get("/v1/promotion-requests")
 async def list_all_promotion_requests(
     status: PromotionRequestStatus | None = Query(default=None),
-    _user: User = Depends(get_current_user),
+    user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
     """The reviewer queue - every PromotionRequest (optionally filtered by
     status), across every Agent, with agent/version/requester context
-    attached. `?status=pending` is what the frontend's review queue uses."""
-    requests = await promotions_service.list_promotion_requests(db, status=status)
+    attached. `?status=pending` is what the frontend's review queue uses.
+    Phase 7: demo/non-demo bucketed by actor - see list_promotion_requests."""
+    requests = await promotions_service.list_promotion_requests(db, status=status, actor=user)
     return await _enrich_with_context(db, requests)
 
 

@@ -43,6 +43,8 @@ Per-team scoping (e.g. "Builder on AI Platform, Viewer everywhere else") was con
 \* Never the same user who created the `PromotionRequest` - see below.
 † `can_emergency_retire` exists in `app/services/permissions.py` but is not wired to any service/API action as of Phase 4 - the only way an `AgentVersion` reaches `retired` today is automatic supersession during a promotion (`app/services/promotions.py::approve_promotion`). A manual retire/abandon endpoint is a real, named gap - see [`evaluation-and-promotion.md`](evaluation-and-promotion.md)'s "Not built" note.
 
+**Phase 7 addition**: every "(own team)" row above, and Reviewer/Admin's normally team-unrestricted rows, get one additional, additive check for the two public demo identities specifically (`permissions.demo_containment_ok`) - a demo actor's team must equal the target Agent's team, full stop, regardless of role. This does not change the matrix above for any real Orion Commerce user; Reviewer/Admin's intentional cross-team authority (why roles are global, not per-team - below) is exactly what a public-facing demo account must not inherit. See [ADR-0022](adrs/0022-public-demo-sandbox.md).
+
 ## No self-approval, ever
 
 `PromotionDecision.decided_by` must not equal the corresponding `PromotionRequest.requested_by`, enforced at write time regardless of role - an Admin who requests their own promotion still cannot approve it; another Reviewer or Admin must. This closes the brief's explicit question ("can the requester approve their own production promotion?") with a hard no, not a policy convention that could be skipped under pressure.

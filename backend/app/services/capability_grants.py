@@ -40,7 +40,9 @@ async def grant_capability(
     if tool is None:
         raise NotFoundError(f"no MCP tool with id {mcp_tool_id}")
 
-    if not permissions.can_grant_mcp_tool(actor, agent.team_id, tool.classification, tool.requires_approval):
+    if not permissions.can_grant_mcp_tool(
+        actor, agent.team_id, tool.classification, tool.requires_approval
+    ) or not permissions.demo_containment_ok(actor, agent.team_id):
         raise PermissionDeniedError(
             "not authorized to grant this tool - write-capable and approval-required tools require "
             "Reviewer or Admin (docs/mcp-governance.md)"
@@ -99,6 +101,10 @@ async def revoke_capability(db: AsyncSession, *, actor: User, grant_id: uuid.UUI
         raise NotFoundError(f"no capability grant with id {grant_id}")
     if grant.revoked_at is not None:
         raise ConflictError(f"grant {grant_id} was already revoked at {grant.revoked_at.isoformat()}")
+
+    _, owning_agent = await _get_agent_version_and_owning_agent(db, grant.agent_version_id)
+    if not permissions.demo_containment_ok(actor, owning_agent.team_id):
+        raise PermissionDeniedError("only Reviewer or Admin may revoke a capability grant")
 
     grant.revoked_by = actor.id
     grant.revoked_at = datetime.now(timezone.utc)

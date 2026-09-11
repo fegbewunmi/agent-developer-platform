@@ -28,35 +28,9 @@ from app.services import gates as gates_service
 from app.services.audit import record_audit_event
 from app.services.evidence_snapshot import take_capability_grant_snapshot
 from app.services.freshness import dataset_case_set_fingerprint
+from app.services.system_actor import get_system_actor_id as _get_system_actor_id
 
 logger = logging.getLogger(__name__)
-
-# System actor for audit events this worker writes without a human in the loop -
-# see docs/audit-model.md. Resolved lazily (first call) since it needs a DB round
-# trip; cached for the process lifetime.
-_SYSTEM_ACTOR_EMAIL = "system@orion-agent-platform.internal"
-
-
-async def _get_system_actor_id(db) -> uuid.UUID:
-    from app.models.identity import Team, User
-
-    result = await db.execute(select(User.id).where(User.email == _SYSTEM_ACTOR_EMAIL))
-    actor_id = result.scalar_one_or_none()
-    if actor_id is not None:
-        return actor_id
-
-    team = (await db.execute(select(Team).where(Team.name == "AI Platform"))).scalar_one_or_none()
-    if team is None:
-        team = Team(id=uuid.uuid4(), name="AI Platform", slack_channel=None)
-        db.add(team)
-        await db.flush()
-
-    from app.models.enums import Role
-
-    user = User(id=uuid.uuid4(), name="System (Evaluation Worker)", email=_SYSTEM_ACTOR_EMAIL, team_id=team.id, role=Role.ADMIN)
-    db.add(user)
-    await db.flush()
-    return user.id
 
 
 async def process_evaluation_job(evaluation_run_reference_id: uuid.UUID, agent_eval_client: AgentEvalClient) -> None:

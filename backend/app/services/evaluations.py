@@ -5,10 +5,12 @@ calling agent-eval's blocking POST /runs) happens in the dispatched job
 Platform should not hold a user request open for the full synchronous Agent Eval run."
 """
 import uuid
+from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import settings
 from app.integrations.agent_eval_client import AgentEvalClient
 from app.models.agent import Agent, AgentVersion, AgentVersionLifecycle
 from app.models.enums import EvaluationRunStatus, Stage
@@ -39,6 +41,63 @@ async def _get_agent_version_and_agent(db: AsyncSession, agent_version_id: uuid.
     return version, agent
 
 
+async def _enforce_demo_evaluation_guardrails(
+    db: AsyncSession, *, actor: User, external_agent_version_id: str
+) -> None:
+    """Phase 7 public demo: real safeguards against an expensive/abusive
+    external call, not just a role check. See docs/phase-notes/phase-7.md.
+
+    - Fixed target: demo evaluations may only invoke the one known-safe,
+      free-to-run agent-eval stub target - never an arbitrary or expensive
+      external_agent_version_id a visitor could type in.
+    - Per-actor cooldown: one request per demo_eval_cooldown_seconds per
+      actor, defeating rapid double-submission.
+    - Global concurrency cap: at most demo_eval_concurrency_cap evaluations
+      may be in flight (requested/dispatched) across ALL demo activity at
+      once, bounding real load on agent-eval-api/Cloud Tasks regardless of
+      how many visitors are trying it simultaneously.
+    """
+    if settings.demo_external_agent_version_id and external_agent_version_id != settings.demo_external_agent_version_id:
+        raise ValidationError(
+            "the public demo may only evaluate against its designated safe target - "
+            "a custom external_agent_version_id is not permitted here"
+        )
+
+    cooldown_cutoff = datetime.now(timezone.utc) - timedelta(seconds=settings.demo_eval_cooldown_seconds)
+    recent = (
+        await db.execute(
+            select(func.count())
+            .select_from(EvaluationRunReference)
+            .where(
+                EvaluationRunReference.requested_by == actor.id,
+                EvaluationRunReference.requested_at >= cooldown_cutoff,
+            )
+        )
+    ).scalar_one()
+    if recent > 0:
+        raise ConflictError(
+            f"the public demo allows one evaluation request every {settings.demo_eval_cooldown_seconds}s per user - "
+            f"please wait before requesting another"
+        )
+
+    in_flight = (
+        await db.execute(
+            select(func.count())
+            .select_from(EvaluationRunReference)
+            .join(AgentVersion, AgentVersion.id == EvaluationRunReference.agent_version_id)
+            .join(Agent, Agent.id == AgentVersion.agent_id)
+            .where(
+                Agent.team_id == actor.team_id,
+                EvaluationRunReference.status.in_([EvaluationRunStatus.REQUESTED, EvaluationRunStatus.DISPATCHED]),
+            )
+        )
+    ).scalar_one()
+    if in_flight >= settings.demo_eval_concurrency_cap:
+        raise ConflictError(
+            "the public demo has reached its concurrent-evaluation limit - please try again shortly"
+        )
+
+
 async def request_evaluation(
     db: AsyncSession,
     agent_eval_client: AgentEvalClient,
@@ -51,8 +110,13 @@ async def request_evaluation(
 ) -> EvaluationRunReference:
     version, agent = await _get_agent_version_and_agent(db, agent_version_id)
 
-    if not permissions.can_request_evaluation(actor, agent.team_id):
+    if not permissions.can_request_evaluation(actor, agent.team_id) or not permissions.demo_containment_ok(
+        actor, agent.team_id
+    ):
         raise PermissionDeniedError("not authorized to request an evaluation for this agent")
+
+    if permissions.is_demo_actor(actor):
+        await _enforce_demo_evaluation_guardrails(db, actor=actor, external_agent_version_id=external_agent_version_id)
 
     if idempotency_key:
         existing = (

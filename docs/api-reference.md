@@ -98,13 +98,22 @@ No generic update endpoint - every state transition is its own explicit action.
 |---|---|---|
 | `POST /v1/agent-versions/{agent_version_id}/promotion-requests` | Builder (own team), Reviewer, Admin | Body: `{"reason": "..." (optional)}`. `201` with the created `PromotionRequest` (full context snapshot - see [ADR-0018](adrs/0018-promotion-request-immutability.md)). `409` if the version isn't `candidate`/`retired`, if a pending request already exists for it, or if it isn't currently eligible (evidence not fresh, or no passing evaluation at all) |
 | `GET /v1/agent-versions/{agent_version_id}/promotion-requests` | any authenticated user | All `PromotionRequest`s for this version, newest first |
-| `GET /v1/promotion-requests` | any authenticated user | Phase 5. The reviewer queue - every `PromotionRequest`, optionally filtered by `?status=`, enriched with agent/version/requester/decider display names (a display join, not new logic) |
+| `GET /v1/promotion-requests` | any authenticated user | Phase 5. The reviewer queue - every `PromotionRequest`, optionally filtered by `?status=`, enriched with agent/version/requester/decider display names (a display join, not new logic). Phase 7: bucketed by actor - a demo-team actor sees only the demo agent's requests, a real Orion actor never sees the demo agent's (`docs/adrs/0022-public-demo-sandbox.md`) |
 | `GET /v1/promotion-requests/{promotion_request_id}` | any authenticated user | The request plus its `PromotionDecision`, if one exists (`decision: null` while pending) |
-| `POST /v1/promotion-requests/{promotion_request_id}/approve` | Reviewer, Admin - never the requester | Body: `{"comment": "..." (optional)}`. `201` with the created `PromotionDecision`. Re-checks freshness live at decision time; `409` if no longer eligible (no production mutation happens), if the request was already decided, or if the cited gate results no longer all pass (defense-in-depth; expected unreachable since gate results are immutable) |
-| `POST /v1/promotion-requests/{promotion_request_id}/reject` | Reviewer, Admin - never the requester | Body: `{"comment": "..." (optional)}`. `201` with the created `PromotionDecision`. Never blocked by staleness - the cited `AgentVersion` stays `candidate`/`retired`, unchanged |
+| `POST /v1/promotion-requests/{promotion_request_id}/approve` | Reviewer, Admin - never the requester, and (Phase 7) never a demo-team actor deciding a non-demo request | Body: `{"comment": "..." (optional)}`. `201` with the created `PromotionDecision`. Re-checks freshness live at decision time; `409` if no longer eligible (no production mutation happens), if the request was already decided, or if the cited gate results no longer all pass (defense-in-depth; expected unreachable since gate results are immutable) |
+| `POST /v1/promotion-requests/{promotion_request_id}/reject` | Reviewer, Admin - never the requester, and (Phase 7) never a demo-team actor deciding a non-demo request | Body: `{"comment": "..." (optional)}`. `201` with the created `PromotionDecision`. Never blocked by staleness - the cited `AgentVersion` stays `candidate`/`retired`, unchanged |
 | `GET /v1/agents/{agent_id}/promotion-history` | any authenticated user | Every `PromotionRequest` (with its decision, if any) across every `AgentVersion` this `Agent` has ever had, newest first - answers "why is this exact version in production right now?" without reconstructing intent from mutable tables |
 
 Rollback is not a separate endpoint - it's an ordinary `POST .../promotion-requests` against an old, `retired` `AgentVersion`, gated identically (see [`evaluation-and-promotion.md`](evaluation-and-promotion.md#promotion-lifecycle)).
+
+## Public demo (Phase 7)
+
+See [ADR-0022](adrs/0022-public-demo-sandbox.md) and `docs/phase-notes/phase-7.md`.
+
+| Method & path | Auth | Notes |
+|---|---|---|
+| `GET /v1/demo/status` | none | The demo agent's id/name/team id and its one safe `external_agent_version_id` - not sensitive; lets the frontend redirect after demo sign-in and pre-fill the evaluation-request form |
+| `POST /v1/demo/reset` | Admin only | On-demand version of the scheduled reset below (`app/services/demo.py::reset_demo_environment`) |
 
 ## Internal (Cloud Tasks push target)
 
@@ -112,6 +121,7 @@ Rollback is not a separate endpoint - it's an ordinary `POST .../promotion-reque
 |---|---|---|
 | `POST /internal/tasks/evaluations/{reference_id}` | real application-level OIDC verification (`app/auth/cloud_tasks.py`), not Cloud Run IAM - see [ADR-0021](adrs/0021-cloud-tasks-application-level-push-auth.md) for why | Not for direct use; the real Cloud Tasks receiver target (`app/services/job_dispatch.py::CloudTasksDispatcher`). See `docs/gcp-architecture.md` |
 | `POST /internal/tasks/outbox/sweep` | same application-level OIDC verification as above | Phase 6: Cloud Scheduler's push target, retries any `OutboxEvent` still unpublished (`app/services/event_publisher.py::sweep_unpublished_outbox_events`) |
+| `POST /internal/tasks/demo/reset` | same application-level OIDC verification as above | Phase 7: Cloud Scheduler's push target (every 3h) for the public demo reset - closes abandoned pending requests, creates a fresh draft version (`app/services/demo.py::reset_demo_environment`) |
 
 ## Error conventions
 

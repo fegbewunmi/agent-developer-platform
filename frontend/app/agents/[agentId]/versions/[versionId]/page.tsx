@@ -35,7 +35,7 @@ export default async function VersionDetailPage({
   }
   const version = versionResult.data;
 
-  const [agentResult, manifestResult, grantsResult, skillsSettled, evaluationsResult, candidacyResult, promotionsResult] = await Promise.all([
+  const [agentResult, manifestResult, grantsResult, skillsSettled, evaluationsResult, candidacyResult, promotionsResult, demoStatusResult] = await Promise.all([
     apiGet<Agent>(`/v1/agents/${agentId}`),
     apiGet<AgentVersionManifest>(`/v1/agent-versions/${versionId}/manifest`),
     apiGet<CapabilityGrant[]>(`/v1/agent-versions/${versionId}/capability-grants?include_revoked=true`),
@@ -43,6 +43,7 @@ export default async function VersionDetailPage({
     apiGet<EvaluationRunReference[]>(`/v1/agent-versions/${versionId}/evaluations`),
     apiGet<Candidacy>(`/v1/agent-versions/${versionId}/candidacy`),
     apiGet<PromotionRequest[]>(`/v1/agent-versions/${versionId}/promotion-requests`),
+    apiGet<{ demo_agent_id: string; demo_external_agent_version_id: string | null }>("/v1/demo/status"),
   ]);
 
   const agent = agentResult.ok ? agentResult.data : null;
@@ -58,6 +59,11 @@ export default async function VersionDetailPage({
     ? await apiGet<GateResult[]>(`/v1/evaluations/${latestEvaluation.id}/gates`)
     : null;
   const gates = gatesResult?.ok ? gatesResult.data : [];
+
+  const demoDefaultExternalAgentVersionId =
+    demoStatusResult.ok && demoStatusResult.data.demo_agent_id === agentId
+      ? demoStatusResult.data.demo_external_agent_version_id
+      : null;
 
   const toolIds = [...new Set(grants.map((g) => g.mcp_tool_id))];
   const toolResults = await Promise.all(toolIds.map((id) => apiGet<MCPTool>(`/v1/mcp-tools/${id}`)));
@@ -179,6 +185,7 @@ export default async function VersionDetailPage({
             latestEvaluation={latestEvaluation}
             gates={gates}
             canRequest={agent ? canRequestEvaluation(user, agent.team_id) : false}
+            defaultExternalAgentVersionId={demoDefaultExternalAgentVersionId}
           />
         </div>
 

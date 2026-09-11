@@ -16,6 +16,33 @@ from app.models.identity import User
 _ELEVATED_ROLES = {Role.REVIEWER, Role.ADMIN}
 
 
+def demo_team_uuid() -> uuid.UUID | None:
+    from app.config import settings
+
+    if not settings.demo_team_id:
+        return None
+    return uuid.UUID(settings.demo_team_id)
+
+
+def is_demo_actor(user: User) -> bool:
+    """Public-demo containment (see app/services/demo.py): true only for the
+    two dedicated demo-team identities, never for a real Orion Commerce user."""
+    demo_team = demo_team_uuid()
+    return demo_team is not None and user.team_id == demo_team
+
+
+def demo_containment_ok(user: User, target_team_id: uuid.UUID) -> bool:
+    """Elevated roles (Reviewer/Admin) intentionally bypass the team check in
+    every can_* function below - real Orion reviewers act across teams by
+    design (ADR-0010). That must not extend to a publicly reachable demo
+    account: a demo actor may only ever act on the demo team's own agent,
+    regardless of role. A no-op (always True) for every non-demo actor -
+    this adds a boundary, it never narrows existing behavior."""
+    if not is_demo_actor(user):
+        return True
+    return user.team_id == target_team_id
+
+
 def can_create_agent(user: User, team_id: uuid.UUID) -> bool:
     """Builder: own team only. Reviewer/Admin: any team."""
     if user.role == Role.BUILDER:

@@ -2,6 +2,7 @@ import { getSession } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import { LoginForm } from "./LoginForm";
 import { PasswordLoginForm } from "./PasswordLoginForm";
+import { DemoLoginButtons } from "./DemoLoginButtons";
 import type { DevLoginUser } from "@/lib/types";
 
 const BACKEND_URL = process.env.BACKEND_API_URL ?? "http://127.0.0.1:8000";
@@ -54,11 +55,15 @@ export default async function LoginPage({
             <PasswordLoginForm next={next} />
           )}
         </div>
-        <p className="mt-4 text-center text-[11px] text-text-faint">
-          {devLogin.kind === "available" && devLogin.users.length > 0
-            ? "Dev-only login - mints a real, backend-verified JWT for a seeded Orion Commerce user."
-            : "Real Identity Platform sign-in - the resulting token is verified by the backend exactly like any other."}
-        </p>
+
+        {devLogin.kind !== "unreachable" && (
+          <div className="mt-4 rounded-lg border border-border bg-bg-raised p-5">
+            <p className="mb-3 text-[12px] font-medium uppercase tracking-wide text-text-faint">
+              Or explore without an account
+            </p>
+            <DemoLoginButtons next={next} />
+          </div>
+        )}
       </div>
     </div>
   );

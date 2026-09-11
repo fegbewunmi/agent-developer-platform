@@ -43,11 +43,9 @@ DEMO_USERS = [
 ]
 AGENT_NAME = "public-demo-agent"
 AGENT_DESCRIPTION = (
-    "The public, interactive sandbox - not part of the curated Orion Commerce sample "
-    "organization. Portfolio visitors sign in as a dedicated demo Builder/Reviewer identity "
-    "and walk the real create -> evaluate -> promote -> review lifecycle against this Agent "
-    "only; every write is real and backend-authorized, contained to this team by "
-    "app/services/permissions.py::demo_containment_ok. See docs/phase-notes/phase-7.md."
+    "The public, interactive sandbox. Sign in as a dedicated demo Builder/Reviewer "
+    "identity and walk the real create -> evaluate -> promote -> review lifecycle "
+    "against this Agent only - every write is real and backend-authorized."
 )
 
 

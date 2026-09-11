@@ -466,6 +466,25 @@ async def get_promotion_decision(db: AsyncSession, promotion_request_id: uuid.UU
     ).scalar_one_or_none()
 
 
+async def list_promotion_requests(
+    db: AsyncSession, *, status: PromotionRequestStatus | None = None, limit: int = 100
+) -> list[PromotionRequest]:
+    """Phase 5: the reviewer queue needs every pending request across every
+    Agent, not scoped to one version (list_promotion_requests_for_version)
+    or one Agent's history (list_promotion_history_for_agent) - neither
+    existing function answers "what's waiting on any reviewer right now."
+    Read access is universal, same as every other list endpoint; the
+    frontend applies self-approval/role-based action visibility, backed by
+    the real can_decide_promotion check at approve/reject time regardless.
+    """
+    stmt = select(PromotionRequest)
+    if status is not None:
+        stmt = stmt.where(PromotionRequest.status == status)
+    stmt = stmt.order_by(PromotionRequest.requested_at.desc()).limit(min(limit, 200))
+    result = await db.execute(stmt)
+    return list(result.scalars().all())
+
+
 async def list_promotion_requests_for_version(db: AsyncSession, agent_version_id: uuid.UUID) -> list[PromotionRequest]:
     result = await db.execute(
         select(PromotionRequest)

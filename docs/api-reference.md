@@ -11,18 +11,32 @@ No `PATCH`/`PUT` route exists anywhere for `AgentVersion`, `SkillVersion`, or an
 | `GET /health` | none | Liveness only |
 | `GET /v1/me` | any authenticated user | Resolves the bearer token to a platform `User` |
 | `GET /v1/teams` | any authenticated user | Read-only |
+| `GET /v1/dev-login/users` | none | Dev-only (only registered when the backend has `AUTH_JWKS_FILE` set - never in a real deployment). Lists the seeded users the frontend's `/login` page can sign in as |
+| `POST /v1/dev-login` | none | Dev-only, same gating. Body: `{"email": "..."}`, must be one of the seeded users. Returns a real, backend-verifiable JWT signed with the same key `scripts/dev_login.py` uses - see `docs/frontend-architecture.md` |
 
 ## Agents and versions
 
 | Method & path | Auth | Notes |
 |---|---|---|
-| `GET /v1/agents` | any authenticated user | Includes `is_representative_data` |
+| `GET /v1/agents` | any authenticated user | Includes `is_representative_data`, and (Phase 5) `production_version_id`/`production_version_label`/`stage_counts` - a display aggregation over `AgentVersionLifecycle`, not new domain logic |
 | `POST /v1/agents` | Builder (own team), Reviewer, Admin | `409` on duplicate name |
-| `GET /v1/agents/{agent_id}` | any authenticated user | |
+| `GET /v1/agents/{agent_id}` | any authenticated user | Same Phase 5 enrichment as the list endpoint |
 | `GET /v1/agents/{agent_id}/versions` | any authenticated user | |
 | `POST /v1/agents/{agent_id}/versions` | Builder (own team), Reviewer, Admin | Body: `{"manifest": {...}}` (see `docs/agent-manifest.md`). `409` on duplicate `version_label`; `422` if the manifest references an unresolvable skill/tool or an incompatible framework |
 | `GET /v1/agent-versions/{version_id}` | any authenticated user | Includes `stage` and `pinned_skill_version_ids` |
 | `GET /v1/agent-versions/{version_id}/manifest` | any authenticated user | Full manifest + `content_hash` |
+
+## Audit (Phase 5)
+
+| Method & path | Auth | Notes |
+|---|---|---|
+| `GET /v1/audit-events` | any authenticated user | Query: `entity_type`, `entity_id`, `limit` (default 50, max 200). Powers the frontend's Activity page and dashboard recent-activity feed - a thin list wrapper over `AuditEvent`, no new event types |
+
+## Dashboard (Phase 5)
+
+| Method & path | Auth | Notes |
+|---|---|---|
+| `GET /v1/dashboard/summary` | any authenticated user | Counts (production agents, candidate versions, pending-my-review, blocked promotions, stale candidate evidence, unhealthy MCP servers) plus a structured `needs_attention` list and recent activity. Runs live `check_freshness` calls, concurrently, against every candidate/production `AgentVersion` and pending `PromotionRequest` - see `docs/phase-notes/phase-5.md`'s "Bugs discovered" for why concurrency here matters |
 
 ## Skills
 
@@ -47,6 +61,7 @@ No `PATCH`/`PUT` route exists anywhere for `AgentVersion`, `SkillVersion`, or an
 | `GET /v1/mcp-servers/{server_id}/tools` | any authenticated user | |
 | `POST /v1/mcp-servers/{server_id}/tools` | Admin only | `409` on duplicate `(server, name)` |
 | `GET /v1/mcp-tools/{tool_id}` | any authenticated user | |
+| `GET /v1/mcp-tools/{tool_id}/grants` | any authenticated user | Phase 5. "Which `AgentVersion`s have a grant for this tool" - mirrors `GET /v1/skill-versions/{id}/agent-versions`'s reverse lookup. Query: `include_revoked` |
 
 ## Capability grants
 
@@ -82,6 +97,7 @@ No generic update endpoint - every state transition is its own explicit action.
 |---|---|---|
 | `POST /v1/agent-versions/{agent_version_id}/promotion-requests` | Builder (own team), Reviewer, Admin | Body: `{"reason": "..." (optional)}`. `201` with the created `PromotionRequest` (full context snapshot - see [ADR-0018](adrs/0018-promotion-request-immutability.md)). `409` if the version isn't `candidate`/`retired`, if a pending request already exists for it, or if it isn't currently eligible (evidence not fresh, or no passing evaluation at all) |
 | `GET /v1/agent-versions/{agent_version_id}/promotion-requests` | any authenticated user | All `PromotionRequest`s for this version, newest first |
+| `GET /v1/promotion-requests` | any authenticated user | Phase 5. The reviewer queue - every `PromotionRequest`, optionally filtered by `?status=`, enriched with agent/version/requester/decider display names (a display join, not new logic) |
 | `GET /v1/promotion-requests/{promotion_request_id}` | any authenticated user | The request plus its `PromotionDecision`, if one exists (`decision: null` while pending) |
 | `POST /v1/promotion-requests/{promotion_request_id}/approve` | Reviewer, Admin - never the requester | Body: `{"comment": "..." (optional)}`. `201` with the created `PromotionDecision`. Re-checks freshness live at decision time; `409` if no longer eligible (no production mutation happens), if the request was already decided, or if the cited gate results no longer all pass (defense-in-depth; expected unreachable since gate results are immutable) |
 | `POST /v1/promotion-requests/{promotion_request_id}/reject` | Reviewer, Admin - never the requester | Body: `{"comment": "..." (optional)}`. `201` with the created `PromotionDecision`. Never blocked by staleness - the cited `AgentVersion` stays `candidate`/`retired`, unchanged |

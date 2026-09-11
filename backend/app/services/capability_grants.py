@@ -130,3 +130,20 @@ async def list_grants(
         stmt = stmt.where(AgentCapabilityGrant.revoked_at.is_(None))
     result = await db.execute(stmt.order_by(AgentCapabilityGrant.granted_at))
     return list(result.scalars().all())
+
+
+async def list_grants_for_tool(
+    db: AsyncSession, *, mcp_tool_id: uuid.UUID, include_revoked: bool = False
+) -> list[AgentCapabilityGrant]:
+    """Phase 5: the MCP registry page's reverse lookup ("which AgentVersions
+    have a grant for this tool") - mirrors
+    app/services/skills.py::list_agent_versions_using_skill_version's
+    existing pattern for the same kind of question on the Skills side."""
+    tool = (await db.execute(select(MCPTool).where(MCPTool.id == mcp_tool_id))).scalar_one_or_none()
+    if tool is None:
+        raise NotFoundError(f"no MCP tool with id {mcp_tool_id}")
+    stmt = select(AgentCapabilityGrant).where(AgentCapabilityGrant.mcp_tool_id == mcp_tool_id)
+    if not include_revoked:
+        stmt = stmt.where(AgentCapabilityGrant.revoked_at.is_(None))
+    result = await db.execute(stmt.order_by(AgentCapabilityGrant.granted_at))
+    return list(result.scalars().all())

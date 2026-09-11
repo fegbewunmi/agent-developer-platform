@@ -45,10 +45,13 @@ Inspect `ai-operations`, `agent-eval`, `doc-qa`; design domain model, service bo
 - Rollback path (`retired → production` via a normal `PromotionRequest`) - live-verified end-to-end: a real `v2` promotion superseded a real `v1`, then `v1` was promoted again from `retired`, with full history preserved throughout.
 - **Known, named gap carried forward**: a standalone manual `candidate/draft → retired` "abandon" action was not built - out of the brief's actual Phase 4 scope, and not needed for any of this phase's required demonstrations (the only path to `retired` is automatic supersession). See [`evaluation-and-promotion.md`](evaluation-and-promotion.md) for detail.
 
-## Phase 5 - Frontend / product workflows
+## Phase 5 - Frontend / product workflows *(complete, see `docs/phase-notes/phase-5.md`)*
 
-- Dashboard, agent catalog, agent/version detail, manifest viewer, skills registry, MCP registry, evaluation status + regression detail, promotion request/review, audit timeline - the full surface list from the brief.
-- Dashboard seed content: production agents, candidate versions, blocked promotions, stale evaluations, unhealthy MCP integrations, recent activity.
+- Next.js (App Router) developer-facing UI: dashboard, agent catalog, agent/version detail, manifest viewer, skills registry, MCP registry, evaluation status + gate detail, promotion request/review, audit timeline - the full surface list from the brief. See [`frontend-architecture.md`](frontend-architecture.md).
+- Dashboard "Needs Attention": pending-my-review, blocked promotions, stale candidate/production evidence, unhealthy MCP integrations, recent activity - all real, live-computed backend state (`GET /v1/dashboard/summary`), no invented warnings.
+- Real Phase 1 auth integration (dev-login flow minting a genuine, backend-verified JWT - never a frontend-only mock); backend authorization remains the sole source of truth, proven live by a real `409` when a stale-blocked approval was attempted through the UI.
+- A handful of new backend read endpoints (global audit events, the global promotion-request reviewer queue, the MCP-tool-grants reverse lookup, the dashboard summary, enriched `Agent` responses) - each a display aggregation over existing Phase 1-4 service functions, not new domain logic.
+- **Known gap carried forward**: no automated end-to-end (Playwright/Cypress) test suite - page-level and full-flow correctness (login → browse → evaluate → promote → approve → production transition → stale-block) was proven via real live browser verification against the running backend/database/deployed `agent-eval-api` instead, documented with a full transcript in the phase notes; unit/component tests (Vitest + React Testing Library) cover permission logic, freshness/gate rendering, and the approve/reject UI in isolation.
 
 ## Phase 6 - Real end-to-end verification + deployment/observability polish
 

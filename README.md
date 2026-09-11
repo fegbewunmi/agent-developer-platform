@@ -6,7 +6,23 @@ This is **not** an agent runtime. It does not execute agents, does not run evalu
 
 ## Status
 
-**Phase 3 complete through `draft → evaluating → candidate`, pending review.** Core domain schema, real JWT authentication, the seeded Orion Commerce organization, the agent/version/skill/MCP registries with governed capability grants, and the real Agent Evaluation Platform integration (evaluation policies, gate computation, evidence freshness, automated lifecycle transitions) are implemented and verified (146 passing automated tests plus two live demos against a real deployed `agent-eval` Cloud Run service) - see [`docs/phase-notes/phase-3.md`](docs/phase-notes/phase-3.md). `agent-eval` itself was deployed to Cloud Run this phase ([ADR-0016](docs/adrs/0016-agent-eval-deployment-decision.md)). No human promotion approval (`candidate → production`) or frontend exist yet; that's Phase 4 onward. See [`docs/roadmap.md`](docs/roadmap.md) for the implementation plan and [`docs/open-questions.md`](docs/open-questions.md) for what's still unresolved.
+**Phases 1-5 complete: full lifecycle, backend and frontend.** Core domain schema, real JWT authentication, the seeded Orion Commerce organization, the agent/version/skill/MCP registries with governed capability grants, the real Agent Evaluation Platform integration (evaluation policies, gate computation, evidence freshness), the full human promotion lifecycle (request, review, approve/reject, production transition, rollback), and a Next.js developer-facing UI over all of it are implemented and live-verified - 178 backend automated tests, 55 frontend automated tests, plus repeated live demonstrations against the real deployed `agent-eval-api` Cloud Run service and the real dev database (see [`docs/phase-notes/`](docs/phase-notes/) for each phase's transcript, most recently [`phase-5.md`](docs/phase-notes/phase-5.md)). `agent-eval` itself was deployed to Cloud Run in Phase 3 ([ADR-0016](docs/adrs/0016-agent-eval-deployment-decision.md)). This platform's own backend/frontend are not yet deployed to Cloud Run - that, plus final end-to-end deployment verification, is Phase 6. See [`docs/roadmap.md`](docs/roadmap.md) for the implementation plan and [`docs/open-questions.md`](docs/open-questions.md) for what's still unresolved.
+
+## Screenshots
+
+Real UI, real data - both captured from a live session against the actual backend/database/deployed `agent-eval-api`, not mockups.
+
+**Overview** - live counts and a "Needs Attention" list, every item backed by real backend state:
+
+![Overview dashboard](docs/screenshots/overview.jpg)
+
+**AgentVersion detail** - the freshness UX differentiator: a historically-passing evaluation is never retroactively marked as failed when its evidence drifts stale, and the exact stale reason (with before/after hashes) is always shown:
+
+![AgentVersion detail showing the freshness/eligibility distinction](docs/screenshots/agent-version-detail-freshness.jpg)
+
+## Running it locally
+
+Backend (FastAPI + Postgres): see `backend/README.md` for the real dev-login flow and environment variables. Frontend (Next.js): `cd frontend && npm install && npm run dev`, pointed at the backend via `BACKEND_API_URL` in `frontend/.env.local`. Sign in at `/login` as one of the four seeded Orion Commerce users - see [`docs/frontend-architecture.md`](docs/frontend-architecture.md) for how that auth flow is real, not mocked.
 
 ## Why this exists
 
@@ -40,6 +56,7 @@ Where these systems have real gaps (no auth, a synchronous-only evaluation API, 
 | [`docs/evaluation-and-promotion.md`](docs/evaluation-and-promotion.md) | Evaluation integration contract, gate model, promotion lifecycle |
 | [`docs/auth-and-approval-model.md`](docs/auth-and-approval-model.md) | Roles, permission matrix, self-approval rule |
 | [`docs/audit-model.md`](docs/audit-model.md) | Audit events, consistency guarantees |
+| [`docs/frontend-architecture.md`](docs/frontend-architecture.md) | Next.js information architecture, auth integration, request flow, freshness UX |
 | [`docs/gcp-architecture.md`](docs/gcp-architecture.md) | Cloud services and why each one exists |
 | [`docs/failure-modes.md`](docs/failure-modes.md) | Designed behavior under partial failure |
 | [`docs/repo-structure.md`](docs/repo-structure.md) | Planned repo layout |

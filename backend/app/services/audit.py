@@ -8,6 +8,7 @@ forcing a failure between the two writes and confirming neither persists.
 """
 import uuid
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.audit import AuditEvent
@@ -32,3 +33,25 @@ def record_audit_event(
     )
     db.add(event)
     return event
+
+
+async def list_audit_events(
+    db: AsyncSession,
+    *,
+    entity_type: str | None = None,
+    entity_id: uuid.UUID | None = None,
+    limit: int = 50,
+) -> list[AuditEvent]:
+    """Phase 5: the frontend's Activity page and dashboard recent-activity
+    feed need to read the real AuditEvent trail - view access is universal
+    (any authenticated user - docs/auth-and-approval-model.md), matching
+    every other read endpoint in this platform.
+    """
+    stmt = select(AuditEvent)
+    if entity_type is not None:
+        stmt = stmt.where(AuditEvent.entity_type == entity_type)
+    if entity_id is not None:
+        stmt = stmt.where(AuditEvent.entity_id == entity_id)
+    stmt = stmt.order_by(AuditEvent.occurred_at.desc()).limit(min(limit, 200))
+    result = await db.execute(stmt)
+    return list(result.scalars().all())

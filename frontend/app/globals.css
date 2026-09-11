@@ -1,0 +1,83 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #0b0d10;
+  --bg-raised: #12151a;
+  --bg-inset: #0a0c0f;
+  --border: #23272e;
+  --border-strong: #343a44;
+  --text: #e6e8eb;
+  --text-muted: #98a1ad;
+  --text-faint: #616974;
+  --accent: #4f8cff;
+  --accent-muted: #1c2c47;
+  --ok: #3fb950;
+  --ok-muted: #10261a;
+  --warn: #d29922;
+  --warn-muted: #2b2210;
+  --danger: #f0555a;
+  --danger-muted: #2b1414;
+  --font-sans: "Geist", "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Geist Mono", ui-monospace, "SF Mono", monospace;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-bg-raised: var(--bg-raised);
+  --color-bg-inset: var(--bg-inset);
+  --color-border: var(--border);
+  --color-border-strong: var(--border-strong);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-accent-muted: var(--accent-muted);
+  --color-ok: var(--ok);
+  --color-ok-muted: var(--ok-muted);
+  --color-warn: var(--warn);
+  --color-warn-muted: var(--warn-muted);
+  --color-danger: var(--danger);
+  --color-danger-muted: var(--danger-muted);
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 13.5px;
+}
+
+table {
+  border-collapse: collapse;
+}
+
+::selection {
+  background: var(--accent-muted);
+}
+
+a {
+  color: inherit;
+}
+
+code, .mono {
+  font-family: var(--font-mono);
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  height: 8px;
+  width: 8px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 4px;
+}

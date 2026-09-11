@@ -4,10 +4,6 @@ An internal control plane for Orion Commerce engineering teams to **register, ve
 
 This is **not** an agent runtime. It does not execute agents, does not run evaluations, and does not execute MCP tools. It is the system of record for *what agent version is running, what it's built from, what evidence justified promoting it, who approved it, and why* - the same relationship a deployment/release-management system has to the services it tracks, not the relationship a compute platform has to the workloads it runs.
 
-## Status
-
-**Phases 1-6 complete: fully deployed control plane, end to end.** Core domain schema, real JWT authentication, the seeded Orion Commerce organization, the agent/version/skill/MCP registries with governed capability grants, the real Agent Evaluation Platform integration (evaluation policies, gate computation, evidence freshness), the full human promotion lifecycle (request, review, approve/reject, production transition, rollback), and a Next.js developer-facing UI over all of it are implemented, deployed to Cloud Run, and live-verified against the real deployed system - 188 backend automated tests, 55 frontend automated tests, plus real end-to-end verification through the actual deployed frontend/backend/database/`agent-eval-api`/Cloud Tasks/Pub/Sub (see [`docs/phase-notes/`](docs/phase-notes/) for each phase's transcript, most recently [`phase-6.md`](docs/phase-notes/phase-6.md)). `agent-eval` was deployed to Cloud Run in Phase 3 ([ADR-0016](docs/adrs/0016-agent-eval-deployment-decision.md)); this platform's own backend and frontend were deployed to Cloud Run in Phase 6, with real production authentication (Identity Platform), real Cloud Tasks delivery, and a durable Pub/Sub outbox - see [`docs/gcp-architecture.md`](docs/gcp-architecture.md) for the final topology and [`docs/open-questions.md`](docs/open-questions.md) / phase-6 notes' "Known limitations" for what remains genuinely open.
-
 ## Screenshots
 
 Real UI, real data - captured from the actual **deployed** Cloud Run frontend/backend/database, signed in via real Identity Platform authentication, not mockups or a local dev server.

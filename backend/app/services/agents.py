@@ -129,6 +129,11 @@ async def create_agent_version(
             "image_digest": provenance.get("image_digest"),
             "publisher": "ci",
             "published_at": datetime.now(timezone.utc).isoformat(),
+            # The agent-eval AgentVersion registered for this exact publish, if
+            # any - set by app/api/ci_publish.py after a successful
+            # agent_eval_client.register_agent_version() call. None when no
+            # live evaluation target is configured for this Agent yet.
+            "agent_eval_agent_version_id": provenance.get("agent_eval_agent_version_id"),
         }
         # Idempotent publication (the brief's explicit requirement): a CI
         # retry for the same commit must never create a duplicate version -

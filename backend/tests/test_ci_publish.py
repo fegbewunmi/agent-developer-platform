@@ -12,8 +12,11 @@ from starlette.requests import Request
 
 from app.auth.ci_publisher import verify_ci_publisher
 from app.config import settings
+from app.dependencies import get_agent_eval_client
+from app.main import app
 from app.services import agents as agents_service
 from app.services.errors import PermissionDeniedError, ValidationError
+from tests.fakes.agent_eval import FakeAgentEvalClient
 
 
 def _request(headers: dict[str, str]) -> Request:
@@ -106,9 +109,15 @@ async def test_via_ci_with_provenance_succeeds_and_is_stored(db_session, org):
         agent_id=agent.id,
         manifest=_MANIFEST,
         via_ci=True,
-        provenance={"git_repo": "org/repo", "git_commit_sha": "abc123", "git_ref": "main"},
+        provenance={
+            "git_repo": "org/repo",
+            "git_commit_sha": "abc123",
+            "git_ref": "main",
+            "agent_eval_agent_version_id": "fake-agent-eval-version-1.0.0",
+        },
     )
     assert version.provenance["git_repo"] == "org/repo"
+    assert version.provenance["agent_eval_agent_version_id"] == "fake-agent-eval-version-1.0.0"
     assert version.provenance["git_commit_sha"] == "abc123"
     assert version.provenance["publisher"] == "ci"
     assert version.provenance["published_at"] is not None
@@ -138,3 +147,46 @@ async def test_manual_creation_still_works_for_non_ci_agent(db_session, org):
         db_session, actor=org["builder"], agent_id=agent.id, manifest=_MANIFEST
     )
     assert version.provenance is None
+
+
+# --- full HTTP route, including the agent-eval registration side-effect -------
+
+
+async def test_publish_route_registers_a_live_agent_eval_target(monkeypatch, client, org):
+    monkeypatch.setattr(settings, "ci_publish_agent_eval_agent_id", "fake-external-agent-id")
+    monkeypatch.setattr(settings, "ci_publish_target_base_url", "https://real-deployment.example")
+    fake = FakeAgentEvalClient()
+    app.dependency_overrides[get_agent_eval_client] = lambda: fake
+    try:
+        resp = await client.post(
+            "/internal/ci/agents/00000000-0000-0000-0000-000000000000/versions",
+            json={"manifest": _manifest("2.0.0"), "provenance": {"git_repo": "org/repo", "git_commit_sha": "sha-xyz"}},
+        )
+        # 404 (Agent doesn't exist) is expected here - the point of this test
+        # is that register_agent_version is called BEFORE that lookup fails,
+        # proving the wiring, not exercising a full happy path (already
+        # covered end-to-end live against the real deployed system).
+        assert resp.status_code == 404
+        assert fake.register_agent_version_calls == [
+            {
+                "external_agent_id": "fake-external-agent-id",
+                "version_label": "2.0.0",
+                "config": {"base_url": "https://real-deployment.example"},
+            }
+        ]
+    finally:
+        app.dependency_overrides.pop(get_agent_eval_client, None)
+
+
+async def test_publish_route_skips_agent_eval_registration_when_unconfigured(monkeypatch, client, org):
+    monkeypatch.setattr(settings, "ci_publish_agent_eval_agent_id", None)
+    fake = FakeAgentEvalClient()
+    app.dependency_overrides[get_agent_eval_client] = lambda: fake
+    try:
+        await client.post(
+            "/internal/ci/agents/00000000-0000-0000-0000-000000000000/versions",
+            json={"manifest": _manifest("2.0.1"), "provenance": {"git_repo": "org/repo", "git_commit_sha": "sha-abc"}},
+        )
+        assert fake.register_agent_version_calls == []
+    finally:
+        app.dependency_overrides.pop(get_agent_eval_client, None)

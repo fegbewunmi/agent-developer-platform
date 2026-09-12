@@ -85,5 +85,15 @@ class Settings(BaseSettings):
     ci_publisher_service_account_email: str | None = None
     ci_publisher_audience: str | None = None  # falls back to cloud_tasks_target_base_url if unset
 
+    # Which agent-eval Agent (and live base_url) a CI publish should register a
+    # fresh AgentVersion against, for the one real CI-integrated agent that
+    # exists today (incident-investigator). Optional and single-agent-scoped
+    # on purpose - a second real integration is the point to generalize this
+    # into a per-Agent mapping, not before (see app/api/ci_publish.py). When
+    # unset, publishing still succeeds; only the agent-eval registration step
+    # is skipped.
+    ci_publish_agent_eval_agent_id: str | None = None
+    ci_publish_target_base_url: str | None = None
+
 
 settings = Settings()

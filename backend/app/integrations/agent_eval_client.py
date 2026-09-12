@@ -15,6 +15,11 @@ its running instance's /openapi.json, both locally and once deployed to Cloud Ru
     GET  /datasets      -> [{id, name, description, case_count}]
     GET  /evaluators    -> [{id, key, version, type, dimension, description}]
     GET  /health        -> {"status": "ok"}
+    POST /agents/{agent_id}/versions {version_label, config, description?} -> 201
+                         {id, version_label, description, created_at} - added Phase 8
+                         (agent-eval commit cdf8cf0) specifically for Orion to register a
+                         live evaluation target for a version it publishes with real
+                         provenance (docs/adrs/0024-ci-publishing-machine-identity.md).
 
 No auth on the local dev instance (confirmed unchanged); the deployed Cloud Run
 instance requires a Google-signed ID token (docs/gcp-architecture.md) - id_token_provider
@@ -159,6 +164,10 @@ class AgentEvalClient(Protocol):
     async def list_datasets(self) -> list[Dataset]: ...
 
     async def get_dataset(self, dataset_id: str) -> Dataset: ...
+
+    async def register_agent_version(
+        self, *, external_agent_id: str, version_label: str, config: dict, description: str | None = None
+    ) -> str: ...
 
 
 def _parse_dimension_stats(raw: list[dict]) -> list[DimensionStat]:
@@ -357,6 +366,36 @@ class HttpAgentEvalClient:
             )
         except (KeyError, TypeError) as exc:
             raise AgentEvalMalformedResponseError(f"unexpected /datasets/{{id}} response shape: {exc}") from exc
+
+    async def register_agent_version(
+        self, *, external_agent_id: str, version_label: str, config: dict, description: str | None = None
+    ) -> str:
+        """Phase 8 (ADR-0023, ADR-0024): the one write call this client makes -
+        POST /agents/{agent_id}/versions -> 201 {id, version_label, description,
+        created_at}, added to agent-eval specifically for Orion to register a
+        live, callable evaluation target for each version it publishes with
+        real source provenance. Idempotent by version_label on agent-eval's
+        side (app/services/seed.py::ensure_agent_version there) - a retry for
+        the same label returns the same id, never a duplicate.
+        """
+        try:
+            async with httpx.AsyncClient(
+                base_url=self._base_url, timeout=httpx.Timeout(15.0, connect=self._connect_timeout)
+            ) as client:
+                response = await client.post(
+                    f"/agents/{external_agent_id}/versions",
+                    json={"version_label": version_label, "config": config, "description": description},
+                    headers=self._headers(),
+                )
+        except httpx.HTTPError as exc:
+            raise AgentEvalUnavailableError(str(exc)) from exc
+
+        if response.status_code != 201:
+            raise AgentEvalMalformedResponseError(f"unexpected status {response.status_code}: {response.text}")
+        try:
+            return response.json()["id"]
+        except (KeyError, TypeError) as exc:
+            raise AgentEvalMalformedResponseError(f"unexpected /agents/{{id}}/versions response shape: {exc}") from exc
 
 
 def default_id_token_provider(audience: str, impersonate_service_account: str | None = None) -> Callable[[], str]:

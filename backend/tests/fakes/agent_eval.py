@@ -41,6 +41,8 @@ class FakeAgentEvalClient:
     raise_on_trigger: Exception | None = None
     trigger_calls: list[dict] = field(default_factory=list)
     get_run_calls: list[tuple[str, str | None]] = field(default_factory=list)
+    register_agent_version_calls: list[dict] = field(default_factory=list)
+    raise_on_register: Exception | None = None
 
     async def trigger_run(
         self, *, agent_version_id, dataset_id, evaluator_ids, triggered_by, timeout_seconds
@@ -103,6 +105,16 @@ class FakeAgentEvalClient:
             if d.id == dataset_id:
                 return d
         raise AgentEvalMalformedResponseError(f"no such dataset {dataset_id}")
+
+    async def register_agent_version(
+        self, *, external_agent_id: str, version_label: str, config: dict, description: str | None = None
+    ) -> str:
+        self.register_agent_version_calls.append(
+            {"external_agent_id": external_agent_id, "version_label": version_label, "config": config}
+        )
+        if self.raise_on_register is not None:
+            raise self.raise_on_register
+        return f"fake-agent-eval-version-{version_label}"
 
 
 def make_evaluator(key: str, version: str = "v1", dimension: str = "task_correctness") -> Evaluator:

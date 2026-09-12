@@ -107,13 +107,21 @@ async def create_agent_version(
     ):
         raise PermissionDeniedError("not authorized to create a version for this agent")
 
+    # Required only when the Agent demands it - but recorded whenever a real
+    # CI caller genuinely supplies it, even for an Agent not (yet, or ever)
+    # flagged requires_ci_provenance=True. Discarding real, verified
+    # provenance just because the flag happens to be off would throw away
+    # a true fact for no reason.
+    if agent.requires_ci_provenance and (
+        not provenance or not provenance.get("git_repo") or not provenance.get("git_commit_sha")
+    ):
+        raise ValidationError(
+            "CI-published versions for this Agent require provenance.git_repo and "
+            "provenance.git_commit_sha"
+        )
+
     resolved_provenance: dict | None = None
-    if agent.requires_ci_provenance:
-        if not provenance or not provenance.get("git_repo") or not provenance.get("git_commit_sha"):
-            raise ValidationError(
-                "CI-published versions for this Agent require provenance.git_repo and "
-                "provenance.git_commit_sha"
-            )
+    if via_ci and provenance and provenance.get("git_repo") and provenance.get("git_commit_sha"):
         resolved_provenance = {
             "git_repo": provenance["git_repo"],
             "git_commit_sha": provenance["git_commit_sha"],

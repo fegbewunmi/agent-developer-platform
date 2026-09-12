@@ -30,3 +30,15 @@ export function canRequestEvaluation(user: Me, teamId: string): boolean {
   if (user.role === "builder") return user.team_id === teamId;
   return ELEVATED.includes(user.role);
 }
+
+// Phase 9: same shape as promotion - a Builder may request review for their
+// own team's skill; Reviewer/Admin for any team. Never the requester.
+export function canRequestSkillReview(user: Me, ownerTeamId: string): boolean {
+  if (user.role === "builder") return user.team_id === ownerTeamId;
+  return ELEVATED.includes(user.role);
+}
+
+export function canDecideSkillReview(user: Me, requestedBy: string): boolean {
+  if (user.id === requestedBy) return false;
+  return ELEVATED.includes(user.role);
+}

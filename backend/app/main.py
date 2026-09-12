@@ -14,6 +14,7 @@ from app.api import (
     mcp,
     me,
     promotions,
+    skill_reviews,
     skills,
     tasks,
     teams,
@@ -61,6 +62,7 @@ app.include_router(capability_grants.revoke_router)
 app.include_router(evaluation_policies.router)
 app.include_router(evaluations.router)
 app.include_router(promotions.router)
+app.include_router(skill_reviews.router)
 app.include_router(audit.router)
 app.include_router(dashboard.router)
 app.include_router(tasks.router)

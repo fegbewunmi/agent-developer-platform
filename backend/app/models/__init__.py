@@ -5,7 +5,8 @@ from app.models.identity import Team, User
 from app.models.mcp import AgentCapabilityGrant, MCPServer, MCPTool
 from app.models.outbox import OutboxEvent
 from app.models.promotion import PromotionDecision, PromotionRequest
-from app.models.skill import AgentVersionSkill, Skill, SkillVersion
+from app.models.skill import AgentVersionSkill, Skill, SkillVersion, SkillVersionLifecycle
+from app.models.skill_review import SkillReviewDecision, SkillReviewRequest
 
 __all__ = [
     "Agent",
@@ -26,4 +27,7 @@ __all__ = [
     "AgentVersionSkill",
     "Skill",
     "SkillVersion",
+    "SkillVersionLifecycle",
+    "SkillReviewDecision",
+    "SkillReviewRequest",
 ]

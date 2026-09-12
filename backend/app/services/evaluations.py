@@ -98,6 +98,34 @@ async def _enforce_demo_evaluation_guardrails(
         )
 
 
+def _resolve_external_agent_version_id(
+    *, actor: User, version: AgentVersion, external_agent_version_id: str | None
+) -> str:
+    """Phase 9: a normal Orion user should never have to know or type an
+    agent-eval internal ID (docs/phase-notes/phase-9.md) - "Run evaluation"
+    resolves it server-side from what Orion already knows:
+
+    - an explicit override, if the caller supplied one (kept for the demo
+      flow's fixed-target enforcement, and as an advanced/debug escape
+      hatch - never required in the normal product flow);
+    - otherwise the live target this exact version was published with
+      (AgentVersion.provenance.agent_eval_agent_version_id, set once at
+      CI-publish time - app/api/ci_publish.py).
+
+    Raises a real, meaningful ValidationError - never a raw 422 about a
+    foreign UUID - when neither is available.
+    """
+    if external_agent_version_id:
+        return external_agent_version_id
+    provenance_target = (version.provenance or {}).get("agent_eval_agent_version_id")
+    if provenance_target:
+        return provenance_target
+    raise ValidationError(
+        "This version has not been registered with Agent Eval - it has no known evaluation target. "
+        "Only versions published with real source provenance (or an explicit target) can be evaluated."
+    )
+
+
 async def request_evaluation(
     db: AsyncSession,
     agent_eval_client: AgentEvalClient,
@@ -105,7 +133,7 @@ async def request_evaluation(
     *,
     actor: User,
     agent_version_id: uuid.UUID,
-    external_agent_version_id: str,
+    external_agent_version_id: str | None = None,
     idempotency_key: str | None = None,
 ) -> EvaluationRunReference:
     version, agent = await _get_agent_version_and_agent(db, agent_version_id)
@@ -114,6 +142,10 @@ async def request_evaluation(
         actor, agent.team_id
     ):
         raise PermissionDeniedError("not authorized to request an evaluation for this agent")
+
+    external_agent_version_id = _resolve_external_agent_version_id(
+        actor=actor, version=version, external_agent_version_id=external_agent_version_id
+    )
 
     if permissions.is_demo_actor(actor):
         await _enforce_demo_evaluation_guardrails(db, actor=actor, external_agent_version_id=external_agent_version_id)

@@ -8,6 +8,9 @@ from sqlalchemy.sql import func
 
 from app.db.base import Base
 from app.models.types import UTCDateTime
+from app.models.enums import SkillStage, pg_enum
+
+_skill_stage_enum = pg_enum(SkillStage, "skill_stage")
 
 
 class Skill(Base):
@@ -55,3 +58,30 @@ class AgentVersionSkill(Base):
     skill_version_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("skill_versions.id"), primary_key=True
     )
+
+
+class SkillVersionLifecycle(Base):
+    """Phase 9: SkillVersion's own "stage vs. content split," mirroring
+    AgentVersionLifecycle exactly - docs/agent-versioning.md#the-stage-vs-
+    content-split, applied to skills. Separate, mutable control-plane
+    metadata about a SkillVersion's current stage, deliberately not a column
+    on SkillVersion itself.
+
+    skill_id is denormalized from SkillVersion.skill_id for the same reason
+    as AgentVersionLifecycle.agent_id - the single-recommended-version-per-
+    skill partial unique index lives on this table.
+    """
+
+    __tablename__ = "skill_version_lifecycle"
+
+    skill_version_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("skill_versions.id"), primary_key=True
+    )
+    skill_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("skills.id"), nullable=False)
+    stage: Mapped[SkillStage] = mapped_column(_skill_stage_enum, nullable=False, default=SkillStage.PUBLISHED)
+    entered_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
+    entered_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+
+    # UNIQUE (skill_id) WHERE stage = 'recommended' is created as a partial
+    # index in migrations/versions/0019_skill_review.py, mirroring
+    # agent_version_lifecycle's uq_one_production_version_per_agent.

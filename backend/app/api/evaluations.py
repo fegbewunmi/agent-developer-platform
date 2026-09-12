@@ -21,7 +21,11 @@ router = APIRouter(tags=["evaluations"])
 
 
 class RequestEvaluationRequest(BaseModel):
-    external_agent_version_id: str
+    # Phase 9: optional - normally resolved server-side from the version's
+    # own CI-publish provenance (app/services/evaluations.py::
+    # _resolve_external_agent_version_id). Only the demo flow and an
+    # advanced/debug override still pass this explicitly.
+    external_agent_version_id: str | None = None
     idempotency_key: str | None = None
 
 

@@ -187,6 +187,10 @@ async def test_dashboard_summary_counts_recommended_and_evaluated(client, org, h
     assert isinstance(body["needs_attention"], list)
     assert isinstance(body["recent_activity"], list)
     assert any(item["type"] == "stale_candidate" for item in body["needs_attention"]) is False  # freshly passed, not stale
+    # Phase 9: the dashboard now also answers "what's this platform for" -
+    # a real developer-ecosystem summary, not just governance counts.
+    assert body["ecosystem"]["agent_count"] >= 1
+    assert isinstance(body["updates"], list)
 
 
 async def test_dashboard_summary_requires_auth(client):

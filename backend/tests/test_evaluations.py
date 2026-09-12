@@ -84,6 +84,74 @@ async def test_request_evaluation_success_returns_202_and_transitions_to_evaluat
         app.dependency_overrides.pop(get_job_dispatcher, None)
 
 
+async def test_request_evaluation_resolves_target_from_provenance_when_omitted(client, org, headers_for, db_session):
+    """Phase 9: a normal user should never have to know or type an agent-eval
+    UUID - app/services/evaluations.py::_resolve_external_agent_version_id.
+    Simulates a CI-published version (real provenance, set at creation time -
+    AgentVersion.provenance is write-once, same as every other column)."""
+    from app.services import agents as agents_service
+
+    agent_name = "eval-provenance-agent"
+    agent = await agents_service.create_agent(
+        db_session, actor=org["builder"], name=agent_name, team_id=org["team_a"].id, description=None
+    )
+    manifest = {
+        "agent": {"name": agent_name, "version": "1.0.0", "framework": "langgraph"},
+        "model": {"provider": "vertex-ai", "name": "gemini-2.5-flash"},
+        "skills": [], "mcp": {"servers": [], "tools": []}, "evaluation": {"policy": "test-policy"},
+    }
+    version = await agents_service.create_agent_version(
+        db_session,
+        actor=org["builder"],
+        agent_id=agent.id,
+        manifest=manifest,
+        via_ci=True,
+        provenance={"git_repo": "org/repo", "git_commit_sha": "abc123", "agent_eval_agent_version_id": "resolved-target-1"},
+    )
+    version_id = str(version.id)
+    await _make_policy(client, org, headers_for, agent_name, dataset_key="fake-dataset")
+
+    fake = FakeAgentEvalClient(
+        evaluators=[make_evaluator("completion_check", "v1")],
+        datasets=[make_dataset("fake-dataset", dataset_id="ds-1")],
+    )
+    _wire_fake_client(fake)
+    try:
+        resp = await client.post(
+            f"/v1/agent-versions/{version_id}/evaluations",
+            json={},
+            headers=headers_for(org["builder"]),
+        )
+        assert resp.status_code == 202
+        detail = await client.get(f"/v1/evaluations/{resp.json()['id']}", headers=headers_for(org["builder"]))
+        assert detail.json()["external_agent_version_id"] == "resolved-target-1"
+    finally:
+        app.dependency_overrides.pop(get_agent_eval_client, None)
+        app.dependency_overrides.pop(get_job_dispatcher, None)
+
+
+async def test_request_evaluation_with_no_target_and_no_provenance_is_meaningful_422(client, org, headers_for):
+    """No raw foreign-ID plumbing error - a real, actionable product message."""
+    agent_name = "eval-no-target-agent"
+    agent_id, version_id = await _make_agent_version(client, org, headers_for, agent_name)
+    await _make_policy(client, org, headers_for, agent_name, dataset_key="fake-dataset")
+
+    fake = FakeAgentEvalClient(
+        evaluators=[make_evaluator("completion_check", "v1")],
+        datasets=[make_dataset("fake-dataset", dataset_id="ds-1")],
+    )
+    _wire_fake_client(fake)
+    try:
+        resp = await client.post(
+            f"/v1/agent-versions/{version_id}/evaluations", json={}, headers=headers_for(org["builder"])
+        )
+        assert resp.status_code == 422
+        assert "not been registered with Agent Eval" in resp.json()["detail"]
+    finally:
+        app.dependency_overrides.pop(get_agent_eval_client, None)
+        app.dependency_overrides.pop(get_job_dispatcher, None)
+
+
 async def test_request_evaluation_forbidden_for_viewer(client, org, headers_for):
     agent_name = "eval-forbidden-agent"
     agent_id, version_id = await _make_agent_version(client, org, headers_for, agent_name)

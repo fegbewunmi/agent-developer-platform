@@ -25,12 +25,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import SessionLocal
-from app.models.agent import Agent
-from app.models.enums import MCPClassification, Role
+from app.models.agent import Agent, AgentVersion
+from app.models.enums import MCPClassification, Role, SkillStage
 from app.models.identity import Team, User
 from app.models.mcp import MCPServer, MCPTool
-from app.models.skill import Skill, SkillVersion
+from app.models.skill import AgentVersionSkill, Skill, SkillVersion, SkillVersionLifecycle
+from app.services import agents as agents_service
 from app.services import mcp as mcp_service
+from app.services import skill_reviews as skill_reviews_service
 from app.services import skills as skills_service
 from app.services.errors import ConflictError
 
@@ -232,6 +234,115 @@ async def seed_skills(db: AsyncSession, builder: User, team_id: uuid.UUID) -> No
                 pass
 
 
+async def seed_shared_skill_story(
+    db: AsyncSession, builder: User, reviewer: User, admin: User, ai_platform_team_id: uuid.UUID
+) -> None:
+    """Phase 9 (docs/phase-notes/phase-9.md): the shared-skill developer
+    story needs a real, demonstrable example, not just UI polish. Before
+    this, `release-risk-agent` had zero AgentVersions and `deployment-
+    analysis` had no history of ever being recommended - the "two agents
+    share a skill, a newer version exists, consumers aren't auto-upgraded"
+    story was literally not present in any seeded data. Idempotent
+    throughout, same pattern as seed_skills above.
+    """
+    skill = (await db.execute(select(Skill).where(Skill.name == "deployment-analysis"))).scalar_one_or_none()
+    if skill is None:
+        return  # seed_skills runs first; nothing to attach this to if it didn't create the skill
+
+    v13 = (
+        await db.execute(select(SkillVersion).where(SkillVersion.skill_id == skill.id, SkillVersion.version == "1.3"))
+    ).scalar_one_or_none()
+    if v13 is None:
+        return
+
+    # deployment-analysis@1.4 - published, deliberately left with no
+    # consumers, so the skill page can show a real "new version available"
+    # story rather than a fabricated one.
+    v14 = (
+        await db.execute(select(SkillVersion).where(SkillVersion.skill_id == skill.id, SkillVersion.version == "1.4"))
+    ).scalar_one_or_none()
+    if v14 is None:
+        try:
+            v14 = await skills_service.create_skill_version(
+                db,
+                actor=builder,
+                skill_id=skill.id,
+                version="1.4",
+                purpose="Adds config-drift detection to the existing deployment/config-change correlation.",
+                input_contract=None,
+                output_contract=None,
+                implementation_ref="ai-operations/backend/app/graph/nodes/deployment.py",
+                compatible_frameworks=["langgraph"],
+            )
+        except ConflictError:
+            v14 = (
+                await db.execute(
+                    select(SkillVersion).where(SkillVersion.skill_id == skill.id, SkillVersion.version == "1.4")
+                )
+            ).scalar_one()
+
+    # release-risk-agent's first real AgentVersion, pinning deployment-analysis@1.3 -
+    # it had none before this. Not CI-integrated (representative data), so
+    # ordinary creation is legitimate here, same as any manually-published version.
+    release_risk = (await db.execute(select(Agent).where(Agent.name == "release-risk-agent"))).scalar_one()
+    existing_versions = (
+        await db.execute(select(AgentVersion).where(AgentVersion.agent_id == release_risk.id))
+    ).scalars().all()
+    if not existing_versions:
+        manifest = {
+            "agent": {"name": "release-risk-agent", "version": "2.0.0", "framework": "langgraph"},
+            "model": {"provider": "vertex-ai", "name": "gemini-2.5-flash"},
+            "skills": ["deployment-analysis@1.3"],
+            "mcp": {"servers": [], "tools": []},
+            "evaluation": {"policy": "release-risk-v1"},
+        }
+        await agents_service.create_agent_version(db, actor=admin, agent_id=release_risk.id, manifest=manifest)
+
+    # incident-investigator: only seedable manually where it isn't
+    # CI-locked (local dev/test - the real deployed instance has
+    # requires_ci_provenance=True, where the only honest way to add a real
+    # skill pin is fixing what the real CI pipeline actually publishes, not
+    # faking a version here - see ai-operations' publish-to-orion.yml).
+    incident_investigator = (
+        await db.execute(select(Agent).where(Agent.name == "incident-investigator"))
+    ).scalar_one_or_none()
+    if incident_investigator is not None and not incident_investigator.requires_ci_provenance:
+        pin_exists = (
+            await db.execute(
+                select(AgentVersionSkill)
+                .join(AgentVersion, AgentVersion.id == AgentVersionSkill.agent_version_id)
+                .where(AgentVersion.agent_id == incident_investigator.id, AgentVersionSkill.skill_version_id == v13.id)
+            )
+        ).first()
+        if pin_exists is None:
+            ii_manifest = {
+                "agent": {"name": "incident-investigator", "version": "4.3.0", "framework": "langgraph"},
+                "model": {"provider": "vertex-ai", "name": "gemini-2.5-flash"},
+                "skills": ["deployment-analysis@1.3"],
+                "mcp": {"servers": [], "tools": []},
+                "evaluation": {"policy": "incident-investigator"},
+            }
+            try:
+                await agents_service.create_agent_version(
+                    db, actor=admin, agent_id=incident_investigator.id, manifest=ii_manifest
+                )
+            except ConflictError:
+                pass
+
+    # deployment-analysis@1.3 becomes RECOMMENDED via a real, decided review -
+    # not a lifecycle row silently set to "recommended" by the seed script.
+    lifecycle_13 = (
+        await db.execute(select(SkillVersionLifecycle).where(SkillVersionLifecycle.skill_version_id == v13.id))
+    ).scalar_one_or_none()
+    if lifecycle_13 is not None and lifecycle_13.stage == SkillStage.PUBLISHED:
+        request = await skill_reviews_service.request_skill_review(
+            db, actor=builder, skill_version_id=v13.id, reason="Used by incident-investigator and release-risk-agent; stable in production."
+        )
+        await skill_reviews_service.approve_skill_review(
+            db, actor=reviewer, skill_review_request_id=request.id, comment="Reviewed - safe to recommend for reuse."
+        )
+
+
 async def seed_mcp(db: AsyncSession, admin: User, team_id: uuid.UUID) -> None:
     server = (
         await db.execute(select(MCPServer).where(MCPServer.name == MCP_SERVER["name"]))
@@ -294,11 +405,13 @@ async def seed() -> None:
 
         maya = users_by_email["maya.chen@orioncommerce.example"]
         alex = users_by_email["alex.rivera@orioncommerce.example"]
+        jordan = users_by_email["jordan.brooks@orioncommerce.example"]
         ai_platform_team_id = teams_by_name["AI Platform"].id
         sre_team_id = teams_by_name["Site Reliability Engineering"].id
 
         await seed_skills(db, maya, ai_platform_team_id)
         await seed_mcp(db, alex, sre_team_id)
+        await seed_shared_skill_story(db, maya, jordan, alex, ai_platform_team_id)
 
     print(
         f"Seeded {len(TEAMS)} teams, {len(USERS)} users, {len(AGENTS)} agents, "

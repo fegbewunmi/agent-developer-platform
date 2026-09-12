@@ -90,3 +90,31 @@ class PromotionRequestStatus(str, enum.Enum):
 class PromotionDecisionType(str, enum.Enum):
     APPROVE = "approve"
     REJECT = "reject"
+
+
+class SkillStage(str, enum.Enum):
+    """SkillVersionLifecycle.stage - docs/skills-and-capabilities.md.
+
+    Phase 9: deliberately a separate, narrower enum from Stage, not a reuse
+    of it - a SkillVersion has no automated evaluation/gate step the way an
+    AgentVersion does (no agent-eval integration for skills), so DRAFT/
+    EVALUATING/EVALUATED would be meaningless here. A SkillVersion is PUBLISHED
+    the moment it's created (immutable, same as today); becoming RECOMMENDED
+    requires an independent reviewer (SkillReviewRequest/SkillReviewDecision,
+    same no-self-approval guarantee as PromotionRequest/PromotionDecision).
+    """
+
+    PUBLISHED = "published"
+    RECOMMENDED = "recommended"
+    DEPRECATED = "deprecated"
+
+
+class SkillReviewRequestStatus(str, enum.Enum):
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
+class SkillReviewDecisionType(str, enum.Enum):
+    APPROVE = "approve"
+    REJECT = "reject"

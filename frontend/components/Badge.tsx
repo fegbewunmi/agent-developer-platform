@@ -1,5 +1,5 @@
 import { ReactNode } from "react";
-import type { Stage, MCPHealthStatus, MCPClassification, EvaluationRunStatus, PromotionRequestStatus } from "@/lib/types";
+import type { Stage, MCPHealthStatus, MCPClassification, EvaluationRunStatus, PromotionRequestStatus, SkillStage, SkillReviewRequestStatus } from "@/lib/types";
 
 type Tone = "neutral" | "accent" | "ok" | "warn" | "danger";
 
@@ -39,6 +39,32 @@ const STAGE_LABEL: Record<Stage, string> = {
 
 export function StageBadge({ stage }: { stage: Stage }) {
   return <Badge tone={STAGE_TONE[stage]}>{STAGE_LABEL[stage]}</Badge>;
+}
+
+const SKILL_STAGE_TONE: Record<SkillStage, Tone> = {
+  published: "neutral",
+  recommended: "ok",
+  deprecated: "neutral",
+};
+
+const SKILL_STAGE_LABEL: Record<SkillStage, string> = {
+  published: "Published",
+  recommended: "Recommended",
+  deprecated: "Deprecated",
+};
+
+export function SkillStageBadge({ stage }: { stage: SkillStage }) {
+  return <Badge tone={SKILL_STAGE_TONE[stage]}>{SKILL_STAGE_LABEL[stage]}</Badge>;
+}
+
+const SKILL_REVIEW_STATUS_TONE: Record<SkillReviewRequestStatus, Tone> = {
+  pending: "warn",
+  approved: "ok",
+  rejected: "danger",
+};
+
+export function SkillReviewStatusBadge({ status }: { status: SkillReviewRequestStatus }) {
+  return <Badge tone={SKILL_REVIEW_STATUS_TONE[status]}>{status[0].toUpperCase() + status.slice(1)}</Badge>;
 }
 
 const HEALTH_TONE: Record<MCPHealthStatus, Tone> = {

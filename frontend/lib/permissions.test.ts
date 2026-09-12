@@ -5,6 +5,8 @@ import {
   canManageRegistry,
   canRevokeGrant,
   canRequestEvaluation,
+  canRequestSkillReview,
+  canDecideSkillReview,
 } from "./permissions";
 import type { Me } from "./types";
 
@@ -106,5 +108,35 @@ describe("canRevokeGrant", () => {
     expect(canRevokeGrant(user({ role: "admin" }))).toBe(true);
     expect(canRevokeGrant(user({ role: "builder" }))).toBe(false);
     expect(canRevokeGrant(user({ role: "viewer" }))).toBe(false);
+  });
+});
+
+describe("canRequestSkillReview - team scoping", () => {
+  it("allows a Builder to request for their own team's skill only", () => {
+    const builder = user({ role: "builder", team_id: "team-a" });
+    expect(canRequestSkillReview(builder, "team-a")).toBe(true);
+    expect(canRequestSkillReview(builder, "team-b")).toBe(false);
+  });
+
+  it("allows Reviewer/Admin for any team", () => {
+    expect(canRequestSkillReview(user({ role: "reviewer" }), "team-z")).toBe(true);
+    expect(canRequestSkillReview(user({ role: "admin" }), "team-z")).toBe(true);
+  });
+});
+
+describe("canDecideSkillReview", () => {
+  it("blocks the requester even if elevated (no self-approval)", () => {
+    const reviewer = user({ id: "u-1", role: "reviewer" });
+    expect(canDecideSkillReview(reviewer, "u-1")).toBe(false);
+  });
+
+  it("allows a different Reviewer/Admin", () => {
+    const reviewer = user({ id: "u-1", role: "reviewer" });
+    expect(canDecideSkillReview(reviewer, "u-2")).toBe(true);
+  });
+
+  it("blocks a Builder regardless", () => {
+    const builder = user({ id: "u-1", role: "builder" });
+    expect(canDecideSkillReview(builder, "u-2")).toBe(false);
   });
 });

@@ -15,13 +15,15 @@ export async function requestEvaluationAction(
   _prevState: ActionResult,
   formData: FormData
 ): Promise<ActionResult> {
-  const externalAgentVersionId = String(formData.get("external_agent_version_id") ?? "").trim();
-  if (!externalAgentVersionId) {
-    return { ok: false, message: "external_agent_version_id is required" };
-  }
+  // Phase 9: no field to read here anymore - the backend resolves the real
+  // evaluation target itself from this version's own provenance
+  // (app/services/evaluations.py::_resolve_external_agent_version_id). An
+  // explicit override is still accepted server-side for the demo flow /
+  // advanced use, via demo_external_agent_version_id below.
+  const overrideExternalAgentVersionId = String(formData.get("external_agent_version_id") ?? "").trim();
 
   const result = await apiPost<EvaluationRunReference>(`/v1/agent-versions/${versionId}/evaluations`, {
-    external_agent_version_id: externalAgentVersionId,
+    external_agent_version_id: overrideExternalAgentVersionId || null,
   });
 
   if (!result.ok) {

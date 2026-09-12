@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { requireSession } from "@/lib/auth";
 import { apiGet } from "@/lib/api";
 import type { DashboardSummary } from "@/lib/types";
@@ -18,12 +19,26 @@ export default async function OverviewPage() {
     );
   }
 
-  const { counts, needs_attention, recent_activity } = result.data;
+  const { counts, needs_attention, recent_activity, ecosystem, updates } = result.data;
 
   return (
     <>
-      <PageHeader title="Overview" subtitle={`Welcome back, ${user.name.split(" ")[0]}. Here's what's happening across Orion's agents.`} />
+      <PageHeader title="Overview" subtitle={`Welcome back, ${user.name.split(" ")[0]}. Here's what's happening across Orion's shared registry.`} />
 
+      <p className="mb-2 text-[11px] font-medium uppercase tracking-wide text-text-faint">Developer ecosystem</p>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <StatCard label="Agents" value={ecosystem.agent_count} href="/agents" />
+        <StatCard label="Skills" value={ecosystem.skill_count} href="/skills" />
+        <StatCard label="Publishing teams" value={ecosystem.publishing_team_count} href="/agents" />
+        <StatCard
+          label="Pending skill reviews"
+          value={ecosystem.pending_skill_reviews}
+          tone={ecosystem.pending_skill_reviews > 0 ? "warn" : "neutral"}
+          href="/skills"
+        />
+      </div>
+
+      <p className="mb-2 mt-5 text-[11px] font-medium uppercase tracking-wide text-text-faint">Governance</p>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard label="Recommended agents" value={counts.recommended_agents} href="/agents" />
         <StatCard label="Evaluated versions" value={counts.evaluated_versions} href="/agents" />
@@ -52,6 +67,36 @@ export default async function OverviewPage() {
           href="/mcp"
         />
       </div>
+
+      {updates.length > 0 && (
+        <div className="mt-5">
+          <Panel title="Updates" subtitle="New capabilities published to the registry, and what they affect">
+            <ul className="flex flex-col divide-y divide-border -mx-4 -my-4">
+              {updates.map((u, i) => (
+                <li key={i} className="px-4 py-2.5 text-[12.5px]">
+                  {u.type === "skill_update_available" ? (
+                    <Link href={`/skills/${u.skill_id}`} className="flex items-center justify-between gap-2 hover:text-accent">
+                      <span className="text-text">
+                        {u.skill_name} <span className="text-text-faint">{u.latest_version} published</span>
+                      </span>
+                      <span className="text-text-faint">
+                        {u.agents_on_older_version} agent{u.agents_on_older_version === 1 ? "" : "s"} on an older version
+                      </span>
+                    </Link>
+                  ) : (
+                    <Link href={`/agents/${u.agent_id}/versions/${u.agent_version_id}`} className="flex items-center justify-between gap-2 hover:text-accent">
+                      <span className="text-text">
+                        {u.agent_name} <span className="mono text-text-faint">{u.version_label}</span> published from GitHub
+                      </span>
+                      <span className="text-text-faint">awaiting evaluation</span>
+                    </Link>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </Panel>
+        </div>
+      )}
 
       <div className="mt-5 grid grid-cols-1 gap-4 lg:grid-cols-5">
         <div className="lg:col-span-3">

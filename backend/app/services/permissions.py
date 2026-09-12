@@ -99,6 +99,24 @@ def can_decide_promotion(user: User, requested_by_user_id: uuid.UUID) -> bool:
     return user.role in _ELEVATED_ROLES
 
 
+def can_request_skill_review(user: User, owner_team_id: uuid.UUID) -> bool:
+    """Same shape as can_request_promotion - a Builder may request their own
+    team's skill be reviewed; Reviewer/Admin may request for any team."""
+    if user.role == Role.BUILDER:
+        return user.team_id == owner_team_id
+    return user.role in _ELEVATED_ROLES
+
+
+def can_decide_skill_review(user: User, requested_by_user_id: uuid.UUID) -> bool:
+    """Reviewer/Admin, and never the requester - same no-self-approval rule
+    as can_decide_promotion (docs/adrs/0009-no-self-approval.md), backed by
+    the same kind of DB trigger for skill_review_decisions
+    (migrations/versions/0019_skill_review.py)."""
+    if user.id == requested_by_user_id:
+        return False
+    return user.role in _ELEVATED_ROLES
+
+
 def can_manage_evaluation_policy(user: User) -> bool:
     return user.role == Role.ADMIN
 

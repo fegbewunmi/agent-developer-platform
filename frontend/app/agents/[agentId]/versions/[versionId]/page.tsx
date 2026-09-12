@@ -65,6 +65,12 @@ export default async function VersionDetailPage({
       ? demoStatusResult.data.demo_external_agent_version_id
       : null;
 
+  // A CI-published version already knows its own real agent-eval target
+  // (app/api/ci_publish.py stores it in provenance at publish time) - a
+  // human should never have to know or type this UUID themselves.
+  const defaultExternalAgentVersionId =
+    demoDefaultExternalAgentVersionId ?? version.provenance?.agent_eval_agent_version_id ?? null;
+
   const toolIds = [...new Set(grants.map((g) => g.mcp_tool_id))];
   const toolResults = await Promise.all(toolIds.map((id) => apiGet<MCPTool>(`/v1/mcp-tools/${id}`)));
   const toolsById = new Map(toolIds.map((id, i) => [id, toolResults[i].ok ? (toolResults[i] as { ok: true; data: MCPTool }).data : null]));
@@ -90,6 +96,25 @@ export default async function VersionDetailPage({
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2 flex flex-col gap-4">
+          {version.provenance ? (
+            <Panel title="Published from GitHub" subtitle="Real source provenance - this AgentVersion corresponds to a real commit, not a typed-in record">
+              <dl className="grid grid-cols-2 divide-y divide-border sm:grid-cols-3">
+                <KeyValue label="Repository">{version.provenance.git_repo}</KeyValue>
+                <KeyValue label="Commit">
+                  <span className="mono">{version.provenance.git_commit_sha.slice(0, 12)}</span>
+                </KeyValue>
+                <KeyValue label="Git ref">{version.provenance.git_ref ?? "—"}</KeyValue>
+                <KeyValue label="Published by">{version.provenance.publisher === "ci" ? "GitHub Actions / agent-platform-ci-publisher" : version.provenance.publisher}</KeyValue>
+                <KeyValue label="Published">{formatDateTime(version.provenance.published_at)}</KeyValue>
+                {version.provenance.image_digest && <KeyValue label="Image digest"><span className="mono text-[11px]">{version.provenance.image_digest.slice(0, 20)}…</span></KeyValue>}
+              </dl>
+            </Panel>
+          ) : agent?.requires_ci_provenance ? (
+            <Panel title="Published from GitHub">
+              <EmptyState title="No provenance recorded" detail="This version predates CI publishing, or was created before the pipeline was proven." />
+            </Panel>
+          ) : null}
+
           <Panel title="Configuration">
             <dl className="grid grid-cols-2 divide-y divide-border sm:grid-cols-3">
               <KeyValue label="Framework">{String(manifest?.agent?.framework ?? "—")}</KeyValue>
@@ -185,7 +210,7 @@ export default async function VersionDetailPage({
             latestEvaluation={latestEvaluation}
             gates={gates}
             canRequest={agent ? canRequestEvaluation(user, agent.team_id) : false}
-            defaultExternalAgentVersionId={demoDefaultExternalAgentVersionId}
+            defaultExternalAgentVersionId={defaultExternalAgentVersionId}
           />
         </div>
 

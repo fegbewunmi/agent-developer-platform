@@ -87,7 +87,18 @@ async def test_agent_version_pins_exact_skill_version_and_reverse_lookup_works(c
         f"/v1/skill-versions/{skill_version_id}/agent-versions", headers=headers_for(org["builder"])
     )
     assert reverse.status_code == 200
-    assert any(v["id"] == version["id"] for v in reverse.json())
+    entry = next(v for v in reverse.json() if v["id"] == version["id"])
+    # Phase 9: the raw "Pinned by 4.3.0" badge told a developer nothing -
+    # the reverse lookup now carries the owning Agent's name too.
+    assert entry["agent_name"] == "pin-agent"
+
+    skill_detail = await client.get(f"/v1/skills/{skill_id}", headers=headers_for(org["builder"]))
+    assert skill_detail.json()["consuming_agent_version_count"] == 1
+
+    version_detail = await client.get(
+        f"/v1/skill-versions/{skill_version_id}", headers=headers_for(org["builder"])
+    )
+    assert version_detail.json()["stage"] == "published"
 
 
 async def test_incompatible_framework_is_rejected(client, org, headers_for):

@@ -1,6 +1,6 @@
 # Orion Agent Developer Platform
 
-An internal control plane for Orion Commerce engineering teams to **register, version, evaluate, govern, and promote AI agents** and the capabilities they depend on (skills and MCP tools).
+A shared internal registry where Orion Commerce teams **publish, discover, evaluate, review, and reuse versioned agents and skills** - not just a governance dashboard for one agent, but a place to find what other teams have already built (see [`docs/phase-notes/phase-9.md`](docs/phase-notes/phase-9.md)).
 
 This is **not** an agent runtime. It does not execute agents, does not run evaluations, and does not execute MCP tools. It is the system of record for *what agent version is running, what it's built from, what evidence justified promoting it, who approved it, and why* - the same relationship a deployment/release-management system has to the services it tracks, not the relationship a compute platform has to the workloads it runs.
 

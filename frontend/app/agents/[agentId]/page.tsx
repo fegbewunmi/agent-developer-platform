@@ -128,6 +128,15 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
           <Panel title="Identity">
             <dl className="divide-y divide-border">
               <KeyValue label="Team">{team?.name ?? "—"}</KeyValue>
+              <KeyValue label="Latest published version">
+                {agent.latest_version_id ? (
+                  <Link href={`/agents/${agentId}/versions/${agent.latest_version_id}`} className="mono text-accent hover:underline">
+                    {agent.latest_version_label}
+                  </Link>
+                ) : (
+                  <span className="text-text-faint">none</span>
+                )}
+              </KeyValue>
               <KeyValue label="Recommended version">
                 {agent.recommended_version_id ? (
                   <Link href={`/agents/${agentId}/versions/${agent.recommended_version_id}`} className="mono text-accent hover:underline">
@@ -139,6 +148,27 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
               </KeyValue>
               <KeyValue label="Agent ID"><span className="mono text-[12px] text-text-faint">{agent.id}</span></KeyValue>
             </dl>
+          </Panel>
+
+          <Panel title="Version publishing">
+            {agent.requires_ci_provenance ? (
+              <div className="flex flex-col gap-2">
+                <Badge tone="accent">CI managed</Badge>
+                <p className="text-[12px] text-text-muted">
+                  New versions are published automatically from the source repository through CI - real source
+                  provenance is required for every version, so there is no manual "create version" flow for this agent.
+                </p>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <Badge tone="neutral">Manual / representative</Badge>
+                <p className="text-[12px] text-text-muted">
+                  {agent.is_representative_data
+                    ? "Representative platform data - versions are seeded for demonstration, not published by a real pipeline."
+                    : "Not yet integrated with a CI pipeline - versions are created directly against the API."}
+                </p>
+              </div>
+            )}
           </Panel>
 
           <Panel title="Recent activity">

@@ -17,6 +17,12 @@ export type PromotionRequestStatus = "pending" | "approved" | "rejected" | "with
 
 export type PromotionDecisionType = "approve" | "reject";
 
+export type SkillStage = "published" | "recommended" | "deprecated";
+
+export type SkillReviewRequestStatus = "pending" | "approved" | "rejected";
+
+export type SkillReviewDecisionType = "approve" | "reject";
+
 export interface Me {
   id: string;
   name: string;
@@ -37,9 +43,22 @@ export interface Agent {
   team_id: string;
   description: string | null;
   is_representative_data: boolean;
+  requires_ci_provenance: boolean;
   recommended_version_id?: string | null;
   recommended_version_label?: string | null;
   stage_counts?: Record<string, number>;
+  latest_version_id?: string | null;
+  latest_version_label?: string | null;
+}
+
+export interface AgentVersionProvenance {
+  git_repo: string;
+  git_commit_sha: string;
+  git_ref: string | null;
+  image_digest: string | null;
+  publisher: string;
+  published_at: string;
+  agent_eval_agent_version_id: string | null;
 }
 
 export interface AgentVersion {
@@ -48,6 +67,7 @@ export interface AgentVersion {
   version_label: string;
   content_hash: string;
   source_ref: string | null;
+  provenance: AgentVersionProvenance | null;
   created_by: string;
   created_at: string;
 }
@@ -75,6 +95,10 @@ export interface Skill {
   name: string;
   owner_team_id: string;
   description: string | null;
+  recommended_version_id?: string | null;
+  recommended_version_label?: string | null;
+  version_count?: number;
+  consuming_agent_version_count?: number;
 }
 
 export interface SkillVersion {
@@ -88,6 +112,54 @@ export interface SkillVersion {
   implementation_ref: string | null;
   compatible_frameworks: string[];
   created_at: string;
+  stage: SkillStage | null;
+}
+
+export interface SkillVersionConsumer {
+  agent_id: string;
+  agent_name: string;
+  agent_version_id: string;
+  version_label: string;
+}
+
+export interface SkillImpactConsumer {
+  skill_version_id: string;
+  skill_version: string;
+  agent_id: string;
+  agent_name: string;
+  agent_version_id: string;
+  version_label: string;
+}
+
+export interface SkillImpact {
+  skill_id: string;
+  skill_name?: string;
+  latest_version: { id: string; version: string } | null;
+  current_impact: SkillImpactConsumer[];
+  historical_consumers: SkillImpactConsumer[];
+}
+
+export interface SkillReviewDecision {
+  id: string;
+  skill_review_request_id: string;
+  decision: SkillReviewDecisionType;
+  decided_by: string;
+  decided_at: string;
+  comment: string | null;
+}
+
+export interface SkillReviewRequest {
+  id: string;
+  skill_version_id: string;
+  requested_by: string;
+  requested_at: string;
+  status: SkillReviewRequestStatus;
+  reason: string | null;
+  // context enrichment (queue endpoint only)
+  skill_id?: string;
+  skill_name?: string;
+  skill_version_label?: string;
+  decision?: SkillReviewDecision | null;
 }
 
 export interface MCPServer {
@@ -259,6 +331,19 @@ export interface NeedsAttentionItem {
   health_status?: string;
 }
 
+export interface DeveloperEcosystemUpdate {
+  type: "skill_update_available" | "ci_published_awaiting_evaluation";
+  skill_id?: string;
+  skill_name?: string;
+  latest_version?: string;
+  agents_on_older_version?: number;
+  agent_id?: string;
+  agent_name?: string;
+  agent_version_id?: string;
+  version_label?: string;
+  git_commit_sha?: string;
+}
+
 export interface DashboardSummary {
   counts: {
     recommended_agents: number;
@@ -270,6 +355,13 @@ export interface DashboardSummary {
   };
   needs_attention: NeedsAttentionItem[];
   recent_activity: AuditEvent[];
+  ecosystem: {
+    agent_count: number;
+    skill_count: number;
+    publishing_team_count: number;
+    pending_skill_reviews: number;
+  };
+  updates: DeveloperEcosystemUpdate[];
 }
 
 export interface DevLoginUser {

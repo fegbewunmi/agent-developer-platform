@@ -237,15 +237,29 @@ async def get_catalog_overview(db: AsyncSession) -> dict[uuid.UUID, dict]:
     domain logic (every fact here is already what
     app/models/agent.py::AgentVersionLifecycle.stage means)."""
     rows = await db.execute(
-        select(AgentVersionLifecycle, AgentVersion).join(AgentVersion, AgentVersion.id == AgentVersionLifecycle.agent_version_id)
+        select(AgentVersionLifecycle, AgentVersion)
+        .join(AgentVersion, AgentVersion.id == AgentVersionLifecycle.agent_version_id)
+        .order_by(AgentVersion.created_at)
     )
     overview: dict[uuid.UUID, dict] = {}
     for lifecycle, version in rows.all():
         entry = overview.setdefault(
             lifecycle.agent_id,
-            {"recommended_version_id": None, "recommended_version_label": None, "stage_counts": {}},
+            {
+                "recommended_version_id": None,
+                "recommended_version_label": None,
+                "stage_counts": {},
+                # Phase 9: "what's the newest thing published" is a distinct
+                # question from "what's currently recommended" -
+                # docs/phase-notes/phase-9.md. Ordered by created_at above,
+                # so the last row seen per agent is always the latest.
+                "latest_version_id": None,
+                "latest_version_label": None,
+            },
         )
         entry["stage_counts"][lifecycle.stage.value] = entry["stage_counts"].get(lifecycle.stage.value, 0) + 1
+        entry["latest_version_id"] = str(version.id)
+        entry["latest_version_label"] = version.version_label
         if lifecycle.stage == Stage.RECOMMENDED:
             entry["recommended_version_id"] = str(version.id)
             entry["recommended_version_label"] = version.version_label

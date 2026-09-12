@@ -27,8 +27,13 @@ export function EvaluationSection({
   latestEvaluation: EvaluationRunReference | null;
   gates: GateResult[];
   canRequest: boolean;
-  /** Phase 7: pre-fills (and is the only value the backend will accept for)
-   * the public demo's evaluation target - null for every non-demo Agent. */
+  /** Pre-fills the evaluation target so a human never has to know or type an
+   * agent-eval AgentVersion UUID themselves. Two sources, resolved by the
+   * caller: the public demo's fixed safe target (Phase 7), or - for a
+   * real, CI-published version - the live target its own publish already
+   * registered in agent-eval (Phase 8, stored in AgentVersion.provenance).
+   * null when neither is known, which only happens for a manually-created
+   * version with no CI provenance - there the field stays free text. */
   defaultExternalAgentVersionId?: string | null;
 }) {
   const router = useRouter();
@@ -141,36 +146,38 @@ function RequestEvaluationForm({
   versionId: string;
   defaultExternalAgentVersionId?: string | null;
 }) {
-  const [open, setOpen] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const boundAction = requestEvaluationAction.bind(null, agentId, versionId);
   const [state, formAction, pending] = useActionState<ActionResult, FormData>(boundAction, { ok: true });
 
-  if (!open) {
-    return (
-      <button onClick={() => setOpen(true)} className="rounded-md border border-accent/40 bg-accent-muted px-2.5 py-1 text-[12px] font-medium text-accent hover:bg-accent-muted/70">
-        Request evaluation
-      </button>
-    );
-  }
-
   return (
-    <form action={formAction} className="flex items-center gap-2">
-      <input
-        name="external_agent_version_id"
-        required
-        defaultValue={defaultExternalAgentVersionId ?? undefined}
-        readOnly={!!defaultExternalAgentVersionId}
-        placeholder="agent-eval AgentVersion ID"
-        title={defaultExternalAgentVersionId ? "The public demo always evaluates against this fixed, safe target." : undefined}
-        className="w-56 rounded-md border border-border bg-bg-inset px-2 py-1 text-[12px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none read-only:text-text-faint"
-      />
-      <button type="submit" disabled={pending} className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-white hover:bg-accent/90 disabled:opacity-50">
-        {pending ? "Submitting…" : "Submit"}
-      </button>
-      <button type="button" onClick={() => setOpen(false)} className="text-[12px] text-text-faint hover:text-text">
-        Cancel
-      </button>
-      {!state.ok && state.message && <span className="text-[11px] text-danger">{state.message}</span>}
+    <form action={formAction} className="flex flex-col items-end gap-1.5">
+      <div className="flex items-center gap-2">
+        {/* Phase 9: the real evaluation target - the demo's fixed safe one,
+            or nothing (the backend resolves it from this version's own
+            provenance) - is never shown as a raw foreign ID in the normal
+            flow. See app/services/evaluations.py::_resolve_external_agent_version_id. */}
+        {defaultExternalAgentVersionId && (
+          <input type="hidden" name="external_agent_version_id" value={defaultExternalAgentVersionId} />
+        )}
+        <button type="submit" disabled={pending} className="rounded-md bg-accent px-2.5 py-1 text-[12px] font-medium text-white hover:bg-accent/90 disabled:opacity-50">
+          {pending ? "Running…" : "Run evaluation"}
+        </button>
+      </div>
+      {!state.ok && state.message && <span className="max-w-[280px] text-right text-[11px] text-danger">{state.message}</span>}
+      {!defaultExternalAgentVersionId && (
+        <details className="text-[11px] text-text-faint" open={showAdvanced} onToggle={(e) => setShowAdvanced(e.currentTarget.open)}>
+          <summary className="cursor-pointer hover:text-text-muted">Advanced: specify a target manually</summary>
+          {showAdvanced && (
+            <input
+              name="external_agent_version_id"
+              placeholder="agent-eval AgentVersion ID"
+              title="Only needed if this version has no known evaluation target - overrides the (nonexistent) automatic resolution."
+              className="mt-1 w-56 rounded-md border border-border bg-bg-inset px-2 py-1 text-[12px] text-text placeholder:text-text-faint focus:border-accent focus:outline-none"
+            />
+          )}
+        </details>
+      )}
     </form>
   );
 }

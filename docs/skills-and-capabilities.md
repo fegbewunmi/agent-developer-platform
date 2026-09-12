@@ -28,6 +28,23 @@ This does mean `stage=draft` describes the version's *lifecycle position* (not y
 
 `ai-operations` doesn't have a `Skill`/`SkillVersion` concept at all - its specialist behavior (telemetry, deployment, knowledge investigation) is implemented as LangGraph nodes with hardcoded logic, not registered capabilities. Modeling the Incident Investigator's three specialists as seeded `SkillVersion`s (`telemetry-investigation@2.1`, `deployment-analysis@1.3`, `knowledge-search@3.0`) is this platform introducing the concept, not reflecting something that already existed - flagged here so it isn't mistaken for an existing integration the way the MCP tools are.
 
+**Phase 9 update**: the real CI pipeline now asserts this composition as part of what it publishes, not just something a human typed in once. `ai-operations`' `publish-to-orion.yml` manifest declares `skills: ["telemetry-investigation@2.1", "deployment-analysis@1.3", "knowledge-search@3.0"]` - the same three real LangGraph nodes (`backend/app/graph/nodes/{telemetry,deployment,knowledge}.py`) the manifest names, resolved and pinned the same way any other `AgentVersion`'s skills are. `Skill`/`SkillVersion` still doesn't exist as a concept inside `ai-operations` itself - Orion is still the only place recording it - but it's no longer purely representative data either: a real, CI-verified commit now really does claim to use exactly these three skills.
+
+## Skill review: a version's own "recommended" concept (Phase 9)
+
+Through Phase 8, a `SkillVersion` had no lifecycle at all beyond "exists" - no way to ask "which version should I actually use," no review step, nothing. `SkillVersionLifecycle` (`published → recommended → deprecated`) and `SkillReviewRequest`/`SkillReviewDecision` close that gap, mirroring `AgentVersionLifecycle`/`PromotionRequest`/`PromotionDecision`'s proven shape - same no-self-approval DB trigger, same "one RECOMMENDED row per parent" partial unique index, same fully-immutable-decision guarantee - **without reusing those tables**. See [ADR-0025](adrs/0025-skill-review-as-a-separate-model.md) for why: `PromotionRequest` has hard, `NOT NULL` foreign keys into the AgentVersion evaluation-gate machinery (`evaluation_run_reference_id`, `evaluation_policy_id`) that a `SkillVersion` - which has no automated evaluator, no `agent-eval` integration, no gates at all - simply cannot honestly satisfy.
+
+A `SkillVersion` is `published` the instant it's created (unchanged - `create_skill_version` always starts here). Becoming `recommended` requires an independent Reviewer/Admin to approve a `SkillReviewRequest` filed by a Builder (own team) or above - the same permission shape as an Agent promotion, via `app/services/skill_reviews.py`. A Builder publishing their own skill version can never make it "the recommended one" by themselves.
+
+## Dependency and impact analysis (Phase 9)
+
+No new tables - `app/services/skills.py::get_skill_impact` is a pure read aggregation over `SkillVersion`, `AgentVersionSkill`, `AgentVersion`, `AgentVersionLifecycle`, and `Agent`, all of which already existed. Two deliberately separate views (`GET /v1/skills/{id}/impact`):
+
+- **`current_impact`**: each Agent's single most recent, non-`deprecated` `AgentVersion` that still pins an older `SkillVersion` than the latest one published for this skill - one row per Agent, answering "who's affected right now."
+- **`historical_consumers`**: every `AgentVersion` that has ever pinned an older version, unfiltered - the full record, kept in a separate section (`docs/phase-notes/phase-9.md`'s "All consumers / history") so it never drowns out the current, actionable view.
+
+Publishing a new `SkillVersion` never touches an existing, immutable `AgentVersion`'s pin - "who's affected" is visibility, not automatic migration. Adopting a newer skill version always means publishing a new `AgentVersion`.
+
 ## Diagram: version-skill-capability relationship
 
 ```mermaid

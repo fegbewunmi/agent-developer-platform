@@ -4,7 +4,15 @@ import { redirect } from "next/navigation";
 import { apiGet, TOKEN_COOKIE } from "./api";
 import type { Me } from "./types";
 
-export { canRequestPromotion, canDecidePromotion, canManageRegistry, canRevokeGrant, canRequestEvaluation } from "./permissions";
+export {
+  canRequestPromotion,
+  canDecidePromotion,
+  canManageRegistry,
+  canRevokeGrant,
+  canRequestEvaluation,
+  canRequestSkillReview,
+  canDecideSkillReview,
+} from "./permissions";
 
 /**
  * The real Phase 1 auth model, integrated - not a frontend mock. The token

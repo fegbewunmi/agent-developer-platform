@@ -1,6 +1,6 @@
 import uuid
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,16 +28,18 @@ class CreateSkillVersionRequest(BaseModel):
     compatible_frameworks: list[str] = []
 
 
-def _skill_to_dict(skill) -> dict:
-    return {
+def _skill_to_dict(skill, overview: dict | None = None) -> dict:
+    entry = {
         "id": str(skill.id),
         "name": skill.name,
         "owner_team_id": str(skill.owner_team_id),
         "description": skill.description,
     }
+    entry.update(overview or {"recommended_version_id": None, "recommended_version_label": None, "version_count": 0, "consuming_agent_version_count": 0})
+    return entry
 
 
-def _skill_version_to_dict(sv) -> dict:
+def _skill_version_to_dict(sv, stage: str | None = None) -> dict:
     return {
         "id": str(sv.id),
         "skill_id": str(sv.skill_id),
@@ -49,14 +51,21 @@ def _skill_version_to_dict(sv) -> dict:
         "implementation_ref": sv.implementation_ref,
         "compatible_frameworks": sv.compatible_frameworks,
         "created_at": sv.created_at.isoformat(),
+        "stage": stage,
     }
 
 
 @router.get("")
 async def list_skills(
-    _user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+    search: str | None = Query(None),
+    owner_team_id: uuid.UUID | None = Query(None),
+    framework: str | None = Query(None),
+    _user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
-    return [_skill_to_dict(s) for s in await skills_service.list_skills(db)]
+    skills = await skills_service.list_skills(db, search=search, owner_team_id=owner_team_id, framework=framework)
+    overview = await skills_service.get_skill_catalog_overview(db)
+    return [_skill_to_dict(s, overview.get(s.id)) for s in skills]
 
 
 @router.post("", status_code=201)
@@ -73,14 +82,31 @@ async def create_skill(
 async def get_skill(
     skill_id: uuid.UUID, _user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> dict:
-    return _skill_to_dict(await skills_service.get_skill(db, skill_id))
+    skill = await skills_service.get_skill(db, skill_id)
+    overview = await skills_service.get_skill_catalog_overview(db)
+    return _skill_to_dict(skill, overview.get(skill_id))
 
 
 @router.get("/{skill_id}/versions")
 async def list_skill_versions(
     skill_id: uuid.UUID, _user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> list[dict]:
-    return [_skill_version_to_dict(v) for v in await skills_service.list_skill_versions(db, skill_id)]
+    versions = await skills_service.list_skill_versions(db, skill_id)
+    stages: dict[uuid.UUID, str] = {}
+    for v in versions:
+        lifecycle = await skills_service.get_skill_version_lifecycle(db, v.id)
+        stages[v.id] = lifecycle.stage.value
+    return [_skill_version_to_dict(v, stages.get(v.id)) for v in versions]
+
+
+@router.get("/{skill_id}/impact")
+async def get_skill_impact(
+    skill_id: uuid.UUID, _user: User = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> dict:
+    """Phase 9: "if the latest SkillVersion isn't what most consumers are
+    on, who's affected" - see app/services/skills.py::get_skill_impact for
+    the current_impact/historical_consumers split."""
+    return await skills_service.get_skill_impact(db, skill_id)
 
 
 @router.post("/{skill_id}/versions", status_code=201)
@@ -104,7 +130,7 @@ async def create_skill_version(
         implementation_ref=body.implementation_ref,
         compatible_frameworks=body.compatible_frameworks,
     )
-    return _skill_version_to_dict(sv)
+    return _skill_version_to_dict(sv, "published")
 
 
 @versions_router.get("/{skill_version_id}")
@@ -113,7 +139,9 @@ async def get_skill_version(
     _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> dict:
-    return _skill_version_to_dict(await skills_service.get_skill_version(db, skill_version_id))
+    sv = await skills_service.get_skill_version(db, skill_version_id)
+    lifecycle = await skills_service.get_skill_version_lifecycle(db, skill_version_id)
+    return _skill_version_to_dict(sv, lifecycle.stage.value)
 
 
 @versions_router.get("/{skill_version_id}/agent-versions")
@@ -122,7 +150,8 @@ async def list_agent_versions_using_skill_version(
     _user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> list[dict]:
-    versions = await skills_service.list_agent_versions_using_skill_version(db, skill_version_id)
+    rows = await skills_service.list_agent_versions_using_skill_version(db, skill_version_id)
     return [
-        {"id": str(v.id), "agent_id": str(v.agent_id), "version_label": v.version_label} for v in versions
+        {"id": str(v.id), "agent_id": str(v.agent_id), "agent_name": a.name, "version_label": v.version_label}
+        for v, a in rows
     ]

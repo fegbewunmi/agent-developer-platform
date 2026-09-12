@@ -18,7 +18,7 @@ No `PATCH`/`PUT` route exists anywhere for `AgentVersion`, `SkillVersion`, or an
 
 | Method & path | Auth | Notes |
 |---|---|---|
-| `GET /v1/agents` | any authenticated user | Includes `is_representative_data`, and (Phase 5) `recommended_version_id`/`recommended_version_label`/`stage_counts` (renamed from `production_version_id`/`production_version_label` in Phase 8 - see [ADR-0023](adrs/0023-registry-not-deployment-platform.md)) - a display aggregation over `AgentVersionLifecycle`, not new domain logic. Also includes (Phase 8) `requires_ci_provenance` |
+| `GET /v1/agents` | any authenticated user | Includes `is_representative_data`, and (Phase 5) `recommended_version_id`/`recommended_version_label`/`stage_counts` (renamed from `production_version_id`/`production_version_label` in Phase 8 - see [ADR-0023](adrs/0023-registry-not-deployment-platform.md)) - a display aggregation over `AgentVersionLifecycle`, not new domain logic. Also includes (Phase 8) `requires_ci_provenance` and (Phase 9) `latest_version_id`/`latest_version_label` - "newest published" is a distinct question from "currently recommended" |
 | `POST /v1/agents` | Builder (own team), Reviewer, Admin | `409` on duplicate name. Body accepts (Phase 8) `requires_ci_provenance` (default `false`) - once `true`, only `POST /internal/ci/agents/{id}/versions` may create versions for this agent |
 | `GET /v1/agents/{agent_id}` | any authenticated user | Same Phase 5 enrichment as the list endpoint |
 | `GET /v1/agents/{agent_id}/versions` | any authenticated user | |
@@ -36,19 +36,33 @@ No `PATCH`/`PUT` route exists anywhere for `AgentVersion`, `SkillVersion`, or an
 
 | Method & path | Auth | Notes |
 |---|---|---|
-| `GET /v1/dashboard/summary` | any authenticated user | Counts (recommended agents, evaluated versions, pending-my-review, blocked promotions, stale evaluated-version evidence, unhealthy MCP servers) plus a structured `needs_attention` list and recent activity. Runs live `check_freshness` calls, concurrently, against every evaluated/recommended `AgentVersion` and pending `PromotionRequest` - see `docs/phase-notes/phase-5.md`'s "Bugs discovered" for why concurrency here matters |
+| `GET /v1/dashboard/summary` | any authenticated user | Counts (recommended agents, evaluated versions, pending-my-review, blocked promotions, stale evaluated-version evidence, unhealthy MCP servers) plus a structured `needs_attention` list and recent activity. Runs live `check_freshness` calls, concurrently, against every evaluated/recommended `AgentVersion` and pending `PromotionRequest` - see `docs/phase-notes/phase-5.md`'s "Bugs discovered" for why concurrency here matters. Phase 9: also `ecosystem` (Agent/Skill/publishing-team counts, pending skill reviews) and `updates` (skills with a newer version than current consumers are on; CI-published versions awaiting evaluation) - both suppressed for demo actors, same containment as `recent_activity` |
 
 ## Skills
 
 | Method & path | Auth | Notes |
 |---|---|---|
-| `GET /v1/skills` | any authenticated user | |
+| `GET /v1/skills` | any authenticated user | Query (Phase 9): `search` (name/description substring), `owner_team_id`, `framework`. Each entry includes `recommended_version_id`/`label`, `version_count`, `consuming_agent_version_count` - a display aggregation, same pattern as the Agent catalog's `GET /v1/agents` |
 | `POST /v1/skills` | Builder (own team), Reviewer, Admin | `409` on duplicate name |
-| `GET /v1/skills/{skill_id}` | any authenticated user | |
-| `GET /v1/skills/{skill_id}/versions` | any authenticated user | |
-| `POST /v1/skills/{skill_id}/versions` | Builder (owner team of the skill), Reviewer, Admin | `409` on duplicate `(skill, version)` |
-| `GET /v1/skill-versions/{skill_version_id}` | any authenticated user | |
-| `GET /v1/skill-versions/{skill_version_id}/agent-versions` | any authenticated user | Reverse lookup: which `AgentVersion`s pin this exact `SkillVersion` |
+| `GET /v1/skills/{skill_id}` | any authenticated user | Same Phase 9 enrichment as the list endpoint |
+| `GET /v1/skills/{skill_id}/versions` | any authenticated user | Each entry includes (Phase 9) `stage` (`published`/`recommended`/`deprecated`) |
+| `POST /v1/skills/{skill_id}/versions` | Builder (owner team of the skill), Reviewer, Admin | `409` on duplicate `(skill, version)`. Starts at `stage: published` - never `recommended` automatically |
+| `GET /v1/skills/{skill_id}/impact` | any authenticated user | Phase 9: `latest_version`, `current_impact` (each Agent's most recent version still on an older SkillVersion), `historical_consumers` (every AgentVersion that ever pinned an older version, unfiltered) |
+| `GET /v1/skill-versions/{skill_version_id}` | any authenticated user | Includes (Phase 9) `stage` |
+| `GET /v1/skill-versions/{skill_version_id}/agent-versions` | any authenticated user | Reverse lookup: which `AgentVersion`s pin this exact `SkillVersion`. Phase 9: each entry now includes `agent_name`, not just `agent_id`/`version_label` |
+
+## Skill reviews (Phase 9)
+
+A `SkillVersion` becomes `recommended` only through this flow - never automatically. Structurally parallel to Promotions below, deliberately not built on the same tables - see [ADR-0025](adrs/0025-skill-review-as-a-separate-model.md).
+
+| Method & path | Auth | Notes |
+|---|---|---|
+| `POST /v1/skill-versions/{skill_version_id}/review-requests` | Builder (owner team of the skill), Reviewer, Admin | Body: `{"reason": "..." (optional)}`. `409` if the version isn't `published`/`deprecated`, or a pending request already exists for it |
+| `GET /v1/skill-versions/{skill_version_id}/review-requests` | any authenticated user | All requests for this version, newest first |
+| `GET /v1/skill-review-requests` | any authenticated user | The reviewer queue across every Skill, optionally filtered by `?status=`, enriched with skill/version display context |
+| `GET /v1/skill-review-requests/{id}` | any authenticated user | The request plus its decision, if any |
+| `POST /v1/skill-review-requests/{id}/approve` | Reviewer, Admin - never the requester | Body: `{"comment": "..." (optional)}`. Sets the version `recommended`, deprecating any previously-recommended version of the same skill |
+| `POST /v1/skill-review-requests/{id}/reject` | Reviewer, Admin - never the requester | Body: `{"comment": "..." (optional)}`. No lifecycle change - the version stays `published`/`deprecated` |
 
 ## MCP registry
 
@@ -84,7 +98,7 @@ No `PATCH`/`PUT` route exists anywhere for `AgentVersion`, `SkillVersion`, or an
 
 | Method & path | Auth | Notes |
 |---|---|---|
-| `POST /v1/agent-versions/{agent_version_id}/evaluations` | Builder (own team), Reviewer, Admin | Body: `{"external_agent_version_id": "...", "idempotency_key": "..." (optional)}`. Returns `202` with `status: "requested"` immediately - the real `agent-eval` call happens asynchronously (see [`evaluation-and-promotion.md`](evaluation-and-promotion.md)). `404` if no `EvaluationPolicy` exists for the agent; `422` if the policy's required dataset/evaluator isn't currently resolvable in `agent-eval`; `409` if the version isn't in `draft`/`evaluating` |
+| `POST /v1/agent-versions/{agent_version_id}/evaluations` | Builder (own team), Reviewer, Admin | Body: `{"external_agent_version_id": "..." (optional, Phase 9), "idempotency_key": "..." (optional)}`. When omitted, the target is resolved server-side from `AgentVersion.provenance.agent_eval_agent_version_id` - a normal user never needs to know or type an agent-eval UUID. Returns `202` with `status: "requested"` immediately - the real `agent-eval` call happens asynchronously (see [`evaluation-and-promotion.md`](evaluation-and-promotion.md)). `404` if no `EvaluationPolicy` exists for the agent; `422` if the policy's required dataset/evaluator isn't currently resolvable in `agent-eval`, or if no target was given and none can be resolved ("This version has not been registered with Agent Eval"); `409` if the version isn't in `draft`/`evaluating` |
 | `GET /v1/agent-versions/{agent_version_id}/evaluations` | any authenticated user | All `EvaluationRunReference`s for this version, newest first |
 | `GET /v1/evaluations/{reference_id}` | any authenticated user | Status, summary evidence (`dimension_stats`, case counts), `external_run_id` for deeper inspection in `agent-eval` |
 | `GET /v1/evaluations/{reference_id}/gates` | any authenticated user | One row per gate criterion - never a blended score |

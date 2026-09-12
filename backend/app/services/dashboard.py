@@ -30,16 +30,21 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from sqlalchemy import func
+
 from app.db.session import SessionLocal
 from app.integrations.agent_eval_client import AgentEvalClient
 from app.models.agent import Agent, AgentVersion, AgentVersionLifecycle
-from app.models.enums import PromotionRequestStatus, Role, Stage
+from app.models.enums import PromotionRequestStatus, Role, SkillReviewRequestStatus, Stage
 from app.models.identity import User
 from app.models.mcp import MCPServer
 from app.models.enums import MCPHealthStatus
+from app.models.skill import Skill
 from app.services import audit as audit_service
 from app.services import permissions
 from app.services import promotions as promotions_service
+from app.services import skill_reviews as skill_reviews_service
+from app.services import skills as skills_service
 from app.services.freshness import FreshnessResult, check_freshness
 
 _UNHEALTHY = {MCPHealthStatus.DEGRADED, MCPHealthStatus.UNAVAILABLE}
@@ -94,6 +99,72 @@ async def _lifecycle_rows(
         stmt = stmt.where(clause)
     rows = await db.execute(stmt)
     return list(rows.all())
+
+
+async def _get_developer_ecosystem(db: AsyncSession) -> dict:
+    """Phase 9: "Orion is a shared registry teams publish to and reuse from,"
+    not primarily a governance dashboard - docs/phase-notes/phase-9.md. Two
+    pieces, both pure reads over existing tables, no new domain logic:
+
+    - `ecosystem`: how many Agents/Skills/teams-publishing exist at all.
+    - `updates`: real, current facts a developer would want to know about
+      without visiting every page - a Skill with a newer version than what
+      most consumers are on (reusing skills_service.get_skill_impact, the
+      same query the skill detail page uses), and a recently CI-published
+      AgentVersion still awaiting its first evaluation.
+    """
+    agent_count = (await db.execute(select(func.count()).select_from(Agent))).scalar_one()
+    skill_count = (await db.execute(select(func.count()).select_from(Skill))).scalar_one()
+    publishing_teams = (
+        await db.execute(select(func.count(func.distinct(Agent.team_id))).select_from(Agent))
+    ).scalar_one()
+
+    updates: list[dict] = []
+
+    for skill in (await db.execute(select(Skill))).scalars().all():
+        impact = await skills_service.get_skill_impact(db, skill.id)
+        if impact["latest_version"] and impact["current_impact"]:
+            updates.append(
+                {
+                    "type": "skill_update_available",
+                    "skill_id": str(skill.id),
+                    "skill_name": skill.name,
+                    "latest_version": impact["latest_version"]["version"],
+                    "agents_on_older_version": len({c["agent_id"] for c in impact["current_impact"]}),
+                }
+            )
+
+    ci_published_rows = await db.execute(
+        select(AgentVersion, Agent, AgentVersionLifecycle.stage)
+        .join(Agent, Agent.id == AgentVersion.agent_id)
+        .join(AgentVersionLifecycle, AgentVersionLifecycle.agent_version_id == AgentVersion.id)
+        .where(AgentVersion.provenance.isnot(None), AgentVersionLifecycle.stage == Stage.DRAFT)
+        .order_by(AgentVersion.created_at.desc())
+        .limit(10)
+    )
+    for version, agent, _stage in ci_published_rows.all():
+        updates.append(
+            {
+                "type": "ci_published_awaiting_evaluation",
+                "agent_id": str(agent.id),
+                "agent_name": agent.name,
+                "agent_version_id": str(version.id),
+                "version_label": version.version_label,
+                "git_commit_sha": (version.provenance or {}).get("git_commit_sha"),
+            }
+        )
+
+    return {
+        "ecosystem": {
+            "agent_count": agent_count,
+            "skill_count": skill_count,
+            "publishing_team_count": publishing_teams,
+            "pending_skill_reviews": len(
+                await skill_reviews_service.list_skill_review_requests(db, status=SkillReviewRequestStatus.PENDING)
+            ),
+        },
+        "updates": updates,
+    }
 
 
 async def get_dashboard_summary(db: AsyncSession, agent_eval_client: AgentEvalClient, *, actor: User) -> dict:
@@ -227,6 +298,17 @@ async def get_dashboard_summary(db: AsyncSession, agent_eval_client: AgentEvalCl
     # transparency for trusted internal staff, including any demo activity.
     recent_activity = [] if permissions.is_demo_actor(actor) else await audit_service.list_audit_events(db, limit=15)
 
+    # Same demo-containment reasoning as recent_activity above: real
+    # org-wide Agent/Skill counts and update items are real Orion Commerce
+    # data, not something a public demo visitor should see - suppressed
+    # entirely for a demo actor rather than filtered (the demo sandbox has
+    # no skills of its own for this to be meaningful for anyway).
+    ecosystem = (
+        {"ecosystem": {"agent_count": 0, "skill_count": 0, "publishing_team_count": 0, "pending_skill_reviews": 0}, "updates": []}
+        if permissions.is_demo_actor(actor)
+        else await _get_developer_ecosystem(db)
+    )
+
     return {
         "counts": {
             "recommended_agents": len(recommended_rows),
@@ -249,4 +331,5 @@ async def get_dashboard_summary(db: AsyncSession, agent_eval_client: AgentEvalCl
             }
             for e in recent_activity
         ],
+        **ecosystem,
     }

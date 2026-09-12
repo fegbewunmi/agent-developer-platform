@@ -17,6 +17,7 @@ class CreateAgentRequest(BaseModel):
     name: str
     team_id: uuid.UUID
     description: str | None = None
+    requires_ci_provenance: bool = False
 
 
 class CreateAgentVersionRequest(BaseModel):
@@ -30,6 +31,7 @@ def _agent_to_dict(agent) -> dict:
         "team_id": str(agent.team_id),
         "description": agent.description,
         "is_representative_data": agent.is_representative_data,
+        "requires_ci_provenance": agent.requires_ci_provenance,
     }
 
 
@@ -40,6 +42,7 @@ def _version_to_dict(version) -> dict:
         "version_label": version.version_label,
         "content_hash": version.content_hash,
         "source_ref": version.source_ref,
+        "provenance": version.provenance,
         "created_by": str(version.created_by),
         "created_at": version.created_at.isoformat(),
     }
@@ -66,7 +69,12 @@ async def create_agent(
     db: AsyncSession = Depends(get_db),
 ) -> dict:
     agent = await agents_service.create_agent(
-        db, actor=user, name=body.name, team_id=body.team_id, description=body.description
+        db,
+        actor=user,
+        name=body.name,
+        team_id=body.team_id,
+        description=body.description,
+        requires_ci_provenance=body.requires_ci_provenance,
     )
     return _agent_to_dict(agent)
 

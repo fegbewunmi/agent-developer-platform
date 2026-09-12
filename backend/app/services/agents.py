@@ -1,4 +1,5 @@
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -9,12 +10,18 @@ from app.models.identity import Team, User
 from app.models.skill import AgentVersionSkill
 from app.services import permissions
 from app.services.audit import record_audit_event
-from app.services.errors import ConflictError, NotFoundError, PermissionDeniedError
+from app.services.errors import ConflictError, NotFoundError, PermissionDeniedError, ValidationError
 from app.services.manifest import resolve_manifest
 
 
 async def create_agent(
-    db: AsyncSession, *, actor: User, name: str, team_id: uuid.UUID, description: str | None
+    db: AsyncSession,
+    *,
+    actor: User,
+    name: str,
+    team_id: uuid.UUID,
+    description: str | None,
+    requires_ci_provenance: bool = False,
 ) -> Agent:
     if not permissions.can_create_agent(actor, team_id):
         raise PermissionDeniedError("not authorized to create an agent for this team")
@@ -27,7 +34,13 @@ async def create_agent(
     if existing is not None:
         raise ConflictError(f"an agent named {name!r} already exists")
 
-    agent = Agent(id=uuid.uuid4(), name=name, team_id=team_id, description=description)
+    agent = Agent(
+        id=uuid.uuid4(),
+        name=name,
+        team_id=team_id,
+        description=description,
+        requires_ci_provenance=requires_ci_provenance,
+    )
     db.add(agent)
     await db.flush()
 
@@ -62,19 +75,66 @@ async def create_agent_version(
     actor: User,
     agent_id: uuid.UUID,
     manifest: dict,
+    via_ci: bool = False,
+    provenance: dict | None = None,
 ) -> AgentVersion:
     """Creates one immutable AgentVersion, its skill pins, and its initial
     (draft) lifecycle row, in a single transaction - all-or-nothing, matching
     docs/agent-versioning.md's write-once guarantee and
     docs/agent-versioning.md#the-stage-vs-content-split (stage lives on
     AgentVersionLifecycle, never as a mutable field here).
+
+    Phase 8 (ADR-0023, ADR-0024): `via_ci`/`provenance` are only ever set by
+    app/api/ci_publish.py, after CIPublisherAuth has already verified the
+    caller's real Google-signed OIDC token - never by the human-facing route
+    (app/api/agents.py), which always calls this with the defaults. An Agent
+    with `requires_ci_provenance=True` accepts versions ONLY via that path;
+    manual creation is rejected outright regardless of the actor's role/team,
+    since the whole point is that no human can type a version into existence
+    for an integrated agent.
     """
     agent = await get_agent(db, agent_id)
 
-    if not permissions.can_create_agent(actor, agent.team_id) or not permissions.demo_containment_ok(
-        actor, agent.team_id
+    if agent.requires_ci_provenance and not via_ci:
+        raise PermissionDeniedError(
+            "this Agent requires CI-published versions with verified source provenance - "
+            "manual creation is disabled (docs/adrs/0023-registry-not-deployment-platform.md)"
+        )
+
+    if not via_ci and (
+        not permissions.can_create_agent(actor, agent.team_id)
+        or not permissions.demo_containment_ok(actor, agent.team_id)
     ):
         raise PermissionDeniedError("not authorized to create a version for this agent")
+
+    resolved_provenance: dict | None = None
+    if agent.requires_ci_provenance:
+        if not provenance or not provenance.get("git_repo") or not provenance.get("git_commit_sha"):
+            raise ValidationError(
+                "CI-published versions for this Agent require provenance.git_repo and "
+                "provenance.git_commit_sha"
+            )
+        resolved_provenance = {
+            "git_repo": provenance["git_repo"],
+            "git_commit_sha": provenance["git_commit_sha"],
+            "git_ref": provenance.get("git_ref"),
+            "image_digest": provenance.get("image_digest"),
+            "publisher": "ci",
+            "published_at": datetime.now(timezone.utc).isoformat(),
+        }
+        # Idempotent publication (the brief's explicit requirement): a CI
+        # retry for the same commit must never create a duplicate version -
+        # returns the existing one instead of erroring or double-publishing.
+        existing_for_commit = (
+            await db.execute(
+                select(AgentVersion).where(
+                    AgentVersion.agent_id == agent.id,
+                    AgentVersion.provenance["git_commit_sha"].astext == resolved_provenance["git_commit_sha"],
+                )
+            )
+        ).scalar_one_or_none()
+        if existing_for_commit is not None:
+            return existing_for_commit
 
     resolved = await resolve_manifest(db, agent, manifest)
 
@@ -85,6 +145,7 @@ async def create_agent_version(
         manifest=manifest,
         content_hash=resolved.content_hash,
         source_ref=resolved.source_ref,
+        provenance=resolved_provenance,
         created_by=actor.id,
     )
     db.add(version)
@@ -113,6 +174,7 @@ async def create_agent_version(
             "version_label": resolved.version_label,
             "content_hash": resolved.content_hash,
             "skill_version_ids": [str(i) for i in resolved.skill_version_ids],
+            "provenance": resolved_provenance,
         },
     )
     await db.commit()

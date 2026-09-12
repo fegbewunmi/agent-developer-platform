@@ -76,5 +76,14 @@ class Settings(BaseSettings):
     demo_eval_cooldown_seconds: int = 30
     demo_eval_concurrency_cap: int = 3
 
+    # CI publishing machine identity (Phase 8) - see app/auth/ci_publisher.py,
+    # docs/adrs/0024-ci-publishing-machine-identity.md. Unset (None) means the
+    # CI-publish endpoint's OIDC check is a no-op, matching every environment
+    # before this feature existed (local dev, tests) - real deployments
+    # always set this to the real Workload-Identity-Federation-backed
+    # publisher service account.
+    ci_publisher_service_account_email: str | None = None
+    ci_publisher_audience: str | None = None  # falls back to cloud_tasks_target_base_url if unset
+
 
 settings = Settings()

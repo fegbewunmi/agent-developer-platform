@@ -5,6 +5,7 @@ from app.api import (
     agents,
     audit,
     capability_grants,
+    ci_publish,
     dashboard,
     demo,
     evaluation_policies,
@@ -64,6 +65,7 @@ app.include_router(audit.router)
 app.include_router(dashboard.router)
 app.include_router(tasks.router)
 app.include_router(demo.router)
+app.include_router(ci_publish.router)
 
 if settings.auth_jwks_file:
     # Dev-only browser login - see app/api/dev_auth.py's module docstring.

@@ -31,6 +31,13 @@ class Agent(Base):
     team_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("teams.id"), nullable=False)
     description: Mapped[str | None] = mapped_column(String, nullable=True)
     is_representative_data: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
+    # Phase 8 (ADR-0023, ADR-0024): when true, AgentVersions for this Agent
+    # may only be created by the CI-publisher machine identity, with real,
+    # verified source provenance - manual creation via the human API is
+    # rejected outright (app/services/agents.py::create_agent_version).
+    # False (default) for every representative/demo agent and every agent
+    # not yet integrated with a real CI pipeline.
+    requires_ci_provenance: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
 
     versions: Mapped[list["AgentVersion"]] = relationship(back_populates="agent")
@@ -55,6 +62,13 @@ class AgentVersion(Base):
     manifest: Mapped[dict] = mapped_column(JSONB, nullable=False)
     content_hash: Mapped[str] = mapped_column(String, nullable=False)
     source_ref: Mapped[str | None] = mapped_column(String, nullable=True)
+    # Phase 8 (ADR-0023, ADR-0024): real source provenance for a
+    # CI-published version - {git_repo, git_commit_sha, git_ref, publisher,
+    # published_at, image_digest}. Null for every version created before
+    # this phase, and for representative/demo agents that never require it
+    # (Agent.requires_ci_provenance). Immutable like every other column here
+    # - set once at creation, never updated (see the class docstring).
+    provenance: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, server_default=func.now(), nullable=False)
 

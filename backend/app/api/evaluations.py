@@ -123,8 +123,8 @@ async def get_candidacy(
     agent_eval_client: AgentEvalClient = Depends(get_agent_eval_client),
 ) -> dict:
     """docs/evaluation-and-promotion.md's core distinction: 'evaluation passed at
-    the time' vs 'evidence is still valid for promotion now'. Always computed live,
-    never cached - a version can be stage=candidate while this reports
+    the time' vs 'evidence is still valid for review now'. Always computed live,
+    never cached - a version can be stage=evaluated while this reports
     currently_eligible=false with explicit stale_findings.
     """
     version = (await db.execute(select(AgentVersion).where(AgentVersion.id == agent_version_id))).scalar_one_or_none()

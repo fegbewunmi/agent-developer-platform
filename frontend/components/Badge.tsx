@@ -24,17 +24,17 @@ export function Badge({ tone = "neutral", children }: { tone?: Tone; children: R
 const STAGE_TONE: Record<Stage, Tone> = {
   draft: "neutral",
   evaluating: "accent",
-  candidate: "warn",
-  production: "ok",
-  retired: "neutral",
+  evaluated: "warn",
+  recommended: "ok",
+  deprecated: "neutral",
 };
 
 const STAGE_LABEL: Record<Stage, string> = {
   draft: "Draft",
   evaluating: "Evaluating",
-  candidate: "Candidate",
-  production: "Production",
-  retired: "Retired",
+  evaluated: "Evaluated",
+  recommended: "Recommended",
+  deprecated: "Deprecated",
 };
 
 export function StageBadge({ stage }: { stage: Stage }) {

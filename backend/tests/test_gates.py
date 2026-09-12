@@ -156,7 +156,7 @@ def test_max_new_regressions_trivially_passes_with_no_baseline():
     gates = compute_gates(_base_input(baseline_comparison=None))
     gate = next(g for g in gates if g.gate_type == "max_new_regressions")
     assert gate.passed is True
-    assert "no production baseline" in gate.reason
+    assert "no recommended baseline" in gate.reason
 
 
 def test_max_new_regressions_passes_within_tolerance():

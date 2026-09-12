@@ -8,7 +8,7 @@ const LINKS = [
   { href: "/agents", label: "Agents" },
   { href: "/skills", label: "Skills" },
   { href: "/mcp", label: "MCP" },
-  { href: "/promotions", label: "Promotions" },
+  { href: "/promotions", label: "Reviews" },
   { href: "/activity", label: "Activity" },
 ];
 

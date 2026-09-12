@@ -23,7 +23,7 @@ class GateComputationInput:
     submitted_evaluator_versions: dict[str, str]  # {evaluator_key: version} actually submitted
     capability_snapshot_hash_at_request: str
     capability_snapshot_hash_at_completion: str
-    baseline_comparison: ComparisonResult | None  # None if no production baseline exists yet
+    baseline_comparison: ComparisonResult | None  # None if no recommended baseline exists yet
     tag_case_failure_counts: dict[str, int] = field(default_factory=dict)  # {tag: n_failed_cases}
 
 
@@ -128,7 +128,7 @@ def _evaluate_gates(inp: GateComputationInput) -> list[ComputedGate]:
         )
     )
 
-    # 4. Max new regressions vs. the current production baseline, if one exists.
+    # 4. Max new regressions vs. the current recommended baseline, if one exists.
     if inp.baseline_comparison is None:
         gates.append(
             ComputedGate(
@@ -137,7 +137,7 @@ def _evaluate_gates(inp: GateComputationInput) -> list[ComputedGate]:
                 expected=str(inp.policy.max_new_regressions),
                 actual="n/a",
                 passed=True,
-                reason="no production baseline evaluation exists yet for this agent - "
+                reason="no recommended baseline evaluation exists yet for this agent - "
                 "nothing to regress against (docs/evaluation-and-promotion.md)",
                 evidence_ref={},
             )
@@ -152,7 +152,7 @@ def _evaluate_gates(inp: GateComputationInput) -> list[ComputedGate]:
                 expected=str(inp.policy.max_new_regressions),
                 actual=str(n_regressions),
                 passed=passed,
-                reason="" if passed else f"{n_regressions} new regression(s) vs. the production baseline run",
+                reason="" if passed else f"{n_regressions} new regression(s) vs. the recommended baseline run",
                 evidence_ref={
                     "baseline_run_id": inp.baseline_comparison.run_a_id,
                     "compared_run_id": inp.baseline_comparison.run_b_id,

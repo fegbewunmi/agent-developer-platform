@@ -25,24 +25,24 @@ export default async function OverviewPage() {
       <PageHeader title="Overview" subtitle={`Welcome back, ${user.name.split(" ")[0]}. Here's what's happening across Orion's agents.`} />
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <StatCard label="Production agents" value={counts.production_agents} href="/agents" />
-        <StatCard label="Candidate versions" value={counts.candidate_versions} href="/agents" />
+        <StatCard label="Recommended agents" value={counts.recommended_agents} href="/agents" />
+        <StatCard label="Evaluated versions" value={counts.evaluated_versions} href="/agents" />
         <StatCard
           label="Pending my review"
-          value={counts.pending_promotion_reviews}
-          tone={counts.pending_promotion_reviews > 0 ? "warn" : "neutral"}
+          value={counts.pending_reviews}
+          tone={counts.pending_reviews > 0 ? "warn" : "neutral"}
           href="/promotions"
         />
         <StatCard
-          label="Blocked promotions"
-          value={counts.blocked_promotions}
-          tone={counts.blocked_promotions > 0 ? "danger" : "neutral"}
+          label="Blocked reviews"
+          value={counts.blocked_reviews}
+          tone={counts.blocked_reviews > 0 ? "danger" : "neutral"}
           href="/promotions"
         />
         <StatCard
           label="Stale evidence"
-          value={counts.stale_candidate_evidence}
-          tone={counts.stale_candidate_evidence > 0 ? "warn" : "neutral"}
+          value={counts.stale_evaluated_evidence}
+          tone={counts.stale_evaluated_evidence > 0 ? "warn" : "neutral"}
           href="/agents"
         />
         <StatCard
@@ -57,7 +57,7 @@ export default async function OverviewPage() {
         <div className="lg:col-span-3">
           <Panel title="Needs attention" subtitle="Real signals from live backend state - nothing here is invented.">
             {needs_attention.length === 0 ? (
-              <EmptyState title="All clear" detail="No pending reviews, blocked promotions, stale evidence, or unhealthy integrations right now." />
+              <EmptyState title="All clear" detail="No pending reviews, blocked reviews, stale evidence, or unhealthy integrations right now." />
             ) : (
               <NeedsAttentionList items={needs_attention} />
             )}

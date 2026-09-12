@@ -11,21 +11,21 @@ function describe(item: NeedsAttentionItem): { title: string; href: string; tone
         href: `/promotions/${item.promotion_request_id}`,
         tone: "warn",
       };
-    case "blocked_promotion":
+    case "blocked_review":
       return {
-        title: `Promotion of ${item.agent_name}@${item.version_label} is blocked - evidence went stale`,
+        title: `Review of ${item.agent_name}@${item.version_label} is blocked - evidence went stale`,
         href: `/promotions/${item.promotion_request_id}`,
         tone: "danger",
       };
-    case "stale_candidate":
+    case "stale_evaluated":
       return {
-        title: `${item.agent_name}@${item.version_label} (candidate) has stale evaluation evidence`,
+        title: `${item.agent_name}@${item.version_label} (evaluated) has stale evaluation evidence`,
         href: `/agents/${item.agent_id}/versions/${item.agent_version_id}`,
         tone: "warn",
       };
-    case "stale_production_evidence":
+    case "stale_recommended_evidence":
       return {
-        title: `${item.agent_name}@${item.version_label} (production) evidence has drifted since it was evaluated`,
+        title: `${item.agent_name}@${item.version_label} (recommended) evidence has drifted since it was evaluated`,
         href: `/agents/${item.agent_id}/versions/${item.agent_version_id}`,
         tone: "warn",
       };

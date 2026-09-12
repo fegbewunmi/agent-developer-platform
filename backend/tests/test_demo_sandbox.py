@@ -303,7 +303,7 @@ async def test_reset_closes_stale_pending_request_and_creates_fresh_draft(monkey
     lifecycle = (
         await db_session.execute(select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_version_id == version.id))
     ).scalar_one()
-    lifecycle.stage = Stage.CANDIDATE
+    lifecycle.stage = Stage.EVALUATED
     reference = EvaluationRunReference(
         id=uuid.uuid4(), agent_version_id=version.id, evaluation_policy_id=(await policies_service.get_current_policy_for_agent(db_session, agent.name)).id,
         external_agent_version_id="ext-1", external_dataset_id="ds-1", requested_by=demo_org["demo_builder"].id,
@@ -312,7 +312,7 @@ async def test_reset_closes_stale_pending_request_and_creates_fresh_draft(monkey
     db_session.add(reference)
     await db_session.flush()
     stale_request = PromotionRequest(
-        id=uuid.uuid4(), agent_version_id=version.id, from_stage=Stage.CANDIDATE, to_stage=Stage.PRODUCTION,
+        id=uuid.uuid4(), agent_version_id=version.id, from_stage=Stage.EVALUATED, to_stage=Stage.RECOMMENDED,
         requested_by=demo_org["demo_builder"].id, evaluation_run_reference_id=reference.id,
         evaluation_policy_id=reference.evaluation_policy_id, capability_grant_snapshot_hash="sha256:x",
         status=PromotionRequestStatus.PENDING,

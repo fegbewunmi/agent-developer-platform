@@ -34,7 +34,7 @@ export default async function AgentsPage() {
                 <tr className="border-b border-border text-[11px] uppercase tracking-wide text-text-faint">
                   <th className="px-2 py-2 font-medium">Agent</th>
                   <th className="px-2 py-2 font-medium">Team</th>
-                  <th className="px-2 py-2 font-medium">Production version</th>
+                  <th className="px-2 py-2 font-medium">Recommended version</th>
                   <th className="px-2 py-2 font-medium">Lifecycle</th>
                   <th className="px-2 py-2 font-medium">Source</th>
                 </tr>
@@ -50,9 +50,9 @@ export default async function AgentsPage() {
                     </td>
                     <td className="px-2 py-3 text-text-muted">{teamNames.get(agent.team_id) ?? "—"}</td>
                     <td className="px-2 py-3">
-                      {agent.production_version_id ? (
-                        <Link href={`/agents/${agent.id}/versions/${agent.production_version_id}`} className="mono text-text hover:text-accent">
-                          {agent.production_version_label}
+                      {agent.recommended_version_id ? (
+                        <Link href={`/agents/${agent.id}/versions/${agent.recommended_version_id}`} className="mono text-text hover:text-accent">
+                          {agent.recommended_version_label}
                         </Link>
                       ) : (
                         <span className="text-text-faint">none</span>
@@ -80,7 +80,7 @@ export default async function AgentsPage() {
 }
 
 function StageCountBadges({ counts }: { counts: Record<string, number> }) {
-  const order = ["production", "candidate", "evaluating", "draft", "retired"];
+  const order = ["recommended", "evaluated", "evaluating", "draft", "deprecated"];
   const entries = order.filter((s) => counts[s]);
   if (entries.length === 0) return <span className="text-text-faint">—</span>;
   return (

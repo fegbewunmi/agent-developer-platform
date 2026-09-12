@@ -196,8 +196,8 @@ export default async function VersionDetailPage({
             stage={version.stage}
             candidacy={candidacy}
             promotionRequests={promotionRequests}
-            productionVersionId={agent?.production_version_id ?? null}
-            productionVersionLabel={agent?.production_version_label ?? null}
+            recommendedVersionId={agent?.recommended_version_id ?? null}
+            recommendedVersionLabel={agent?.recommended_version_label ?? null}
             canRequest={agent ? canRequestPromotion(user, agent.team_id) : false}
           />
         </div>

@@ -14,9 +14,9 @@ describe("StageBadge", () => {
   it.each([
     ["draft", "Draft"],
     ["evaluating", "Evaluating"],
-    ["candidate", "Candidate"],
-    ["production", "Production"],
-    ["retired", "Retired"],
+    ["evaluated", "Evaluated"],
+    ["recommended", "Recommended"],
+    ["deprecated", "Deprecated"],
   ] as const)("renders %s as %s", (stage, label) => {
     render(<StageBadge stage={stage} />);
     expect(screen.getByText(label)).toBeInTheDocument();

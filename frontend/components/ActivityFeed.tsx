@@ -5,7 +5,7 @@ import { EmptyState } from "./Layout";
 const EVENT_LABELS: Record<string, string> = {
   "agent.created": "Agent created",
   "agent_version.created": "Version created",
-  "agent_version.became_candidate": "Became candidate - gates passed",
+  "agent_version.became_candidate": "Became evaluated - gates passed",
   "skill.created": "Skill created",
   "skill_version.published": "Skill version published",
   "capability.granted": "Capability granted",
@@ -19,8 +19,8 @@ const EVENT_LABELS: Record<string, string> = {
   "promotion.rejected": "Promotion rejected",
   "promotion.approval_blocked_stale": "Approval blocked - stale evidence",
   "promotion.rollback": "Rollback promotion",
-  "agent_version.promoted": "Promoted to production",
-  "agent_version.retired": "Retired (superseded)",
+  "agent_version.promoted": "Became recommended",
+  "agent_version.retired": "Deprecated (superseded)",
   "mcp_server.registered": "MCP server registered",
   "mcp_tool.registered": "MCP tool registered",
 };

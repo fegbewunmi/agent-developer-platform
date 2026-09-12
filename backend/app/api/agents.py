@@ -54,7 +54,7 @@ async def list_agents(
     result = []
     for a in await agents_service.list_agents(db):
         entry = _agent_to_dict(a)
-        entry.update(overview.get(a.id, {"production_version_id": None, "production_version_label": None, "stage_counts": {}}))
+        entry.update(overview.get(a.id, {"recommended_version_id": None, "recommended_version_label": None, "stage_counts": {}}))
         result.append(entry)
     return result
 
@@ -80,7 +80,7 @@ async def get_agent(
     agent = await agents_service.get_agent(db, agent_id)
     entry = _agent_to_dict(agent)
     overview = await agents_service.get_catalog_overview(db)
-    entry.update(overview.get(agent.id, {"production_version_id": None, "production_version_label": None, "stage_counts": {}}))
+    entry.update(overview.get(agent.id, {"recommended_version_id": None, "recommended_version_label": None, "stage_counts": {}}))
     return entry
 
 

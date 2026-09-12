@@ -1,8 +1,8 @@
-"""Evidence freshness / candidate eligibility - docs/evaluation-and-promotion.md's
+"""Evidence freshness / review eligibility - docs/evaluation-and-promotion.md's
 distinction between "evaluation passed at the time" (a historical, immutable fact -
 see app/services/gates.py, computed once, at run completion) and "evidence is still
-valid for promotion now" (computed live, every time this module is called, never
-stored). A version can remain stage=candidate while becoming currently ineligible.
+valid for review now" (computed live, every time this module is called, never
+stored). A version can remain stage=evaluated while becoming currently ineligible.
 
 Real, named API gap found during Phase 3 (see docs/open-questions.md and
 docs/evaluation-and-promotion.md): agent-eval's `dataset_snapshot_hash` is computed
@@ -80,7 +80,7 @@ async def _latest_historically_passing_reference(
     return None
 
 
-_DEFAULT_PROMOTABLE_STAGES = frozenset({Stage.CANDIDATE})
+_DEFAULT_PROMOTABLE_STAGES = frozenset({Stage.EVALUATED})
 
 
 async def check_freshness(
@@ -92,17 +92,16 @@ async def check_freshness(
     promotable_stages: frozenset[Stage] = _DEFAULT_PROMOTABLE_STAGES,
 ) -> FreshnessResult:
     """promotable_stages: which AgentVersionLifecycle.stage values count as
-    "this version's own stage doesn't block promotion" for currently_eligible.
-    Defaults to {candidate} (the GET .../candidacy endpoint's original Phase 3
+    "this version's own stage doesn't block review" for currently_eligible.
+    Defaults to {evaluated} (the GET .../candidacy endpoint's original Phase 3
     meaning, unchanged). Phase 4's rollback path
-    (docs/evaluation-and-promotion.md's `retired -> production`) needs the
-    SAME evidence-freshness check applied to a retired version, so
-    app/services/promotions.py passes {candidate, retired} here - this
+    (docs/evaluation-and-promotion.md's `deprecated -> recommended`) needs the
+    SAME evidence-freshness check applied to a deprecated version, so
+    app/services/promotions.py passes {evaluated, deprecated} here - this
     function stays the single source of truth for "is the evidence itself
     still good," while whether a stage may legally receive a PromotionRequest
     at all is app/services/promotions.py's own, separate check (the brief's
-    "verify candidate lifecycle state" step is deliberately distinct from
-    freshness).
+    "verify lifecycle state" step is deliberately distinct from freshness).
     """
     lifecycle = (
         await db.execute(

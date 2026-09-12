@@ -37,12 +37,12 @@ export default async function PromotionReviewPage({ params }: { params: Promise<
   const tools = toolResults.filter((r) => r.ok).map((r) => (r as { ok: true; data: MCPTool }).data);
 
   const canDecide = canDecidePromotion(user, request.requested_by);
-  const isRollback = request.from_stage === "retired";
+  const isRollback = request.from_stage === "deprecated";
 
   return (
     <>
       <PageHeader
-        breadcrumb={<Link href="/promotions" className="hover:text-text">Promotions</Link>}
+        breadcrumb={<Link href="/promotions" className="hover:text-text">Reviews</Link>}
         title={
           <span className="flex items-center gap-2">
             {request.agent_name}
@@ -76,17 +76,17 @@ export default async function PromotionReviewPage({ params }: { params: Promise<
                   {request.version_label}
                 </Link>
               </KeyValue>
-              <KeyValue label="Production at request time">
-                {request.production_version_id_at_request ? (
-                  <span className="mono">{request.production_version_id_at_request.slice(0, 8)}…</span>
+              <KeyValue label="Recommended at request time">
+                {request.recommended_version_id_at_request ? (
+                  <span className="mono">{request.recommended_version_id_at_request.slice(0, 8)}…</span>
                 ) : (
                   <span className="text-text-faint">none</span>
                 )}
               </KeyValue>
-              <KeyValue label="Current production">
-                {agent?.production_version_id ? (
-                  <Link href={`/agents/${agent.id}/versions/${agent.production_version_id}`} className="mono text-accent hover:underline">
-                    {agent.production_version_label}
+              <KeyValue label="Currently recommended">
+                {agent?.recommended_version_id ? (
+                  <Link href={`/agents/${agent.id}/versions/${agent.recommended_version_id}`} className="mono text-accent hover:underline">
+                    {agent.recommended_version_label}
                   </Link>
                 ) : (
                   <span className="text-text-faint">none</span>

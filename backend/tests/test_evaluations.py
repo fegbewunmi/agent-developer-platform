@@ -197,7 +197,7 @@ async def test_cannot_request_evaluation_for_candidate_version(client, org, head
     lifecycle = (
         await db_session.execute(select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_version_id == _uuid.UUID(version_id)))
     ).scalar_one()
-    lifecycle.stage = Stage.CANDIDATE
+    lifecycle.stage = Stage.EVALUATED
     await db_session.commit()
 
     resp = await client.post(

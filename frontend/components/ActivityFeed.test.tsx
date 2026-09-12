@@ -24,12 +24,12 @@ describe("ActivityFeed - rollback history rendering as an ordinary promotion", (
 
   it("labels agent_version.promoted the same way whether it's a rollback or an ordinary promotion", () => {
     render(<ActivityFeed events={[event({ event_type: "agent_version.promoted" })]} />);
-    expect(screen.getByText("Promoted to production")).toBeInTheDocument();
+    expect(screen.getByText("Became recommended")).toBeInTheDocument();
   });
 
-  it("labels agent_version.retired as retired-superseded", () => {
+  it("labels agent_version.retired as deprecated-superseded", () => {
     render(<ActivityFeed events={[event({ event_type: "agent_version.retired" })]} />);
-    expect(screen.getByText("Retired (superseded)")).toBeInTheDocument();
+    expect(screen.getByText("Deprecated (superseded)")).toBeInTheDocument();
   });
 
   it("shows an approval-blocked-stale event distinctly from a normal approval", () => {

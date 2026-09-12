@@ -7,8 +7,8 @@ app/services/mcp.py already compute/return - this module only aggregates and
 shapes them for one screen, the same way app/api/promotions.py's
 _enrich_with_context is a display join, not new business logic.
 
-Live freshness checks (per candidate, per pending request, per production
-version) each make real calls to agent-eval - bounded by how many Agents/
+Live freshness checks (per evaluated version, per pending request, per
+recommended version) each make real calls to agent-eval - bounded by how many Agents/
 AgentVersions actually exist, run CONCURRENTLY (not one-at-a-time - a real
 performance bug found live: sequential checks against the real deployed
 agent-eval-api made this endpoint take 25-47 seconds with only ~7 versions
@@ -97,8 +97,8 @@ async def _lifecycle_rows(
 
 
 async def get_dashboard_summary(db: AsyncSession, agent_eval_client: AgentEvalClient, *, actor: User) -> dict:
-    production_rows = await _lifecycle_rows(db, Stage.PRODUCTION, actor=actor)
-    candidate_rows = await _lifecycle_rows(db, Stage.CANDIDATE, actor=actor)
+    recommended_rows = await _lifecycle_rows(db, Stage.RECOMMENDED, actor=actor)
+    evaluated_rows = await _lifecycle_rows(db, Stage.EVALUATED, actor=actor)
 
     pending_requests = await promotions_service.list_promotion_requests(
         db, status=PromotionRequestStatus.PENDING, actor=actor
@@ -121,42 +121,42 @@ async def get_dashboard_summary(db: AsyncSession, agent_eval_client: AgentEvalCl
     # Every live freshness check this endpoint needs, across all three
     # categories, dispatched together - not one category at a time, each
     # waiting on the previous.
-    candidate_checks = [_FreshnessCheck(version.id, agent.name, frozenset({Stage.CANDIDATE})) for _, version, agent in candidate_rows]
+    evaluated_checks = [_FreshnessCheck(version.id, agent.name, frozenset({Stage.EVALUATED})) for _, version, agent in evaluated_rows]
     pending_checks = [
-        _FreshnessCheck(pending_context[r.agent_version_id][0].id, pending_context[r.agent_version_id][1].name, frozenset({Stage.CANDIDATE, Stage.RETIRED}))
+        _FreshnessCheck(pending_context[r.agent_version_id][0].id, pending_context[r.agent_version_id][1].name, frozenset({Stage.EVALUATED, Stage.DEPRECATED}))
         for r in pending_requests
         if r.agent_version_id in pending_context
     ]
-    production_checks = [_FreshnessCheck(version.id, agent.name, frozenset({Stage.PRODUCTION})) for _, version, agent in production_rows]
+    recommended_checks = [_FreshnessCheck(version.id, agent.name, frozenset({Stage.RECOMMENDED})) for _, version, agent in recommended_rows]
 
-    all_checks = candidate_checks + pending_checks + production_checks
+    all_checks = evaluated_checks + pending_checks + recommended_checks
     all_results = await asyncio.gather(*[_check_freshness_own_session(agent_eval_client, c) for c in all_checks])
 
-    candidate_results = dict(zip((c.agent_version_id for c in candidate_checks), all_results[: len(candidate_checks)]))
+    evaluated_results = dict(zip((c.agent_version_id for c in evaluated_checks), all_results[: len(evaluated_checks)]))
     pending_results = dict(
         zip(
             (c.agent_version_id for c in pending_checks),
-            all_results[len(candidate_checks) : len(candidate_checks) + len(pending_checks)],
+            all_results[len(evaluated_checks) : len(evaluated_checks) + len(pending_checks)],
         )
     )
-    production_results = dict(zip((c.agent_version_id for c in production_checks), all_results[len(candidate_checks) + len(pending_checks) :]))
+    recommended_results = dict(zip((c.agent_version_id for c in recommended_checks), all_results[len(evaluated_checks) + len(pending_checks) :]))
 
-    stale_candidates: list[dict] = []
-    for _, version, agent in candidate_rows:
-        result = candidate_results.get(version.id)
+    stale_evaluated: list[dict] = []
+    for _, version, agent in evaluated_rows:
+        result = evaluated_results.get(version.id)
         if result is not None and result.stale_findings:
             item = {
-                "type": "stale_candidate",
+                "type": "stale_evaluated",
                 "agent_id": str(agent.id),
                 "agent_name": agent.name,
                 "agent_version_id": str(version.id),
                 "version_label": version.version_label,
                 "stale_findings": [{"reason": f.reason, "detail": f.detail} for f in result.stale_findings],
             }
-            stale_candidates.append(item)
+            stale_evaluated.append(item)
             needs_attention.append(item)
 
-    blocked_promotions: list[dict] = []
+    blocked_reviews: list[dict] = []
     for r in pending_requests:
         ctx = pending_context.get(r.agent_version_id)
         if ctx is None:
@@ -165,7 +165,7 @@ async def get_dashboard_summary(db: AsyncSession, agent_eval_client: AgentEvalCl
         result = pending_results.get(r.agent_version_id)
         if result is not None and not result.currently_eligible:
             item = {
-                "type": "blocked_promotion",
+                "type": "blocked_review",
                 "agent_id": str(agent.id),
                 "agent_name": agent.name,
                 "agent_version_id": str(version.id),
@@ -173,7 +173,7 @@ async def get_dashboard_summary(db: AsyncSession, agent_eval_client: AgentEvalCl
                 "promotion_request_id": str(r.id),
                 "stale_findings": [{"reason": f.reason, "detail": f.detail} for f in result.stale_findings],
             }
-            blocked_promotions.append(item)
+            blocked_reviews.append(item)
             needs_attention.append(item)
 
     for r in my_reviewable:
@@ -191,19 +191,19 @@ async def get_dashboard_summary(db: AsyncSession, agent_eval_client: AgentEvalCl
             }
         )
 
-    stale_production: list[dict] = []
-    for _, version, agent in production_rows:
-        result = production_results.get(version.id)
+    stale_recommended: list[dict] = []
+    for _, version, agent in recommended_rows:
+        result = recommended_results.get(version.id)
         if result is not None and result.stale_findings:
             item = {
-                "type": "stale_production_evidence",
+                "type": "stale_recommended_evidence",
                 "agent_id": str(agent.id),
                 "agent_name": agent.name,
                 "agent_version_id": str(version.id),
                 "version_label": version.version_label,
                 "stale_findings": [{"reason": f.reason, "detail": f.detail} for f in result.stale_findings],
             }
-            stale_production.append(item)
+            stale_recommended.append(item)
             needs_attention.append(item)
 
     unhealthy_servers = (
@@ -229,11 +229,11 @@ async def get_dashboard_summary(db: AsyncSession, agent_eval_client: AgentEvalCl
 
     return {
         "counts": {
-            "production_agents": len(production_rows),
-            "candidate_versions": len(candidate_rows),
-            "pending_promotion_reviews": len(my_reviewable),
-            "blocked_promotions": len(blocked_promotions),
-            "stale_candidate_evidence": len(stale_candidates),
+            "recommended_agents": len(recommended_rows),
+            "evaluated_versions": len(evaluated_rows),
+            "pending_reviews": len(my_reviewable),
+            "blocked_reviews": len(blocked_reviews),
+            "stale_evaluated_evidence": len(stale_evaluated),
             "unhealthy_mcp_servers": len(unhealthy_servers),
         },
         "needs_attention": needs_attention,

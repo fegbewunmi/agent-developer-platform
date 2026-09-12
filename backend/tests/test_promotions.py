@@ -86,8 +86,8 @@ async def test_request_promotion_happy_path(db_session, org):
     )
 
     assert request.status == PromotionRequestStatus.PENDING
-    assert request.from_stage == Stage.CANDIDATE
-    assert request.to_stage == Stage.PRODUCTION
+    assert request.from_stage == Stage.EVALUATED
+    assert request.to_stage == Stage.RECOMMENDED
     assert request.evaluation_policy_id is not None
     assert request.capability_grant_snapshot_hash is not None
     assert request.production_version_id_at_request is None  # nothing in production yet
@@ -156,7 +156,7 @@ async def test_approve_promotion_happy_path(db_session, org):
     assert request.status == PromotionRequestStatus.APPROVED
 
     lifecycle = (await db_session.execute(select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_version_id == version.id))).scalar_one()
-    assert lifecycle.stage == Stage.PRODUCTION
+    assert lifecycle.stage == Stage.RECOMMENDED
 
     events = (await db_session.execute(select(AuditEvent).where(AuditEvent.entity_id == version.id))).scalars().all()
     event_types = {e.event_type for e in events}
@@ -226,7 +226,7 @@ async def test_approve_promotion_blocked_by_stale_evidence_no_production_mutatio
     assert request.status == PromotionRequestStatus.PENDING  # unchanged - still pending, not auto-rejected
 
     lifecycle = (await db_session.execute(select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_version_id == version.id))).scalar_one()
-    assert lifecycle.stage == Stage.CANDIDATE  # no production mutation happened
+    assert lifecycle.stage == Stage.EVALUATED  # no production mutation happened
 
     blocked_events = (
         await db_session.execute(select(AuditEvent).where(AuditEvent.event_type == "promotion.approval_blocked_stale"))
@@ -257,7 +257,7 @@ async def test_reject_promotion_leaves_candidate_in_candidate(db_session, org):
     assert request.status == PromotionRequestStatus.REJECTED
 
     lifecycle = (await db_session.execute(select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_version_id == version.id))).scalar_one()
-    assert lifecycle.stage == Stage.CANDIDATE  # unchanged - no candidate -> draft edge exists
+    assert lifecycle.stage == Stage.EVALUATED  # unchanged - no candidate -> draft edge exists
 
     # A fresh request can be filed once the rejected one is no longer pending.
     second_request = await promotions_service.request_promotion(db_session, client, actor=org["builder"], agent_version_id=version.id)
@@ -326,7 +326,7 @@ async def test_rollback_full_history_preserved(db_session, org):
     await promotions_service.approve_promotion(db_session, client1, publisher, actor=org["reviewer"], promotion_request_id=req1.id)
 
     lifecycle_v1 = (await db_session.execute(select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_version_id == v1.id))).scalar_one()
-    assert lifecycle_v1.stage == Stage.PRODUCTION
+    assert lifecycle_v1.stage == Stage.RECOMMENDED
 
     req2 = await promotions_service.request_promotion(db_session, client2, actor=org["builder"], agent_version_id=v2.id)
     assert req2.production_version_id_at_request == v1.id
@@ -335,12 +335,12 @@ async def test_rollback_full_history_preserved(db_session, org):
     db_session.expire(lifecycle_v1)
     lifecycle_v1 = (await db_session.execute(select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_version_id == v1.id))).scalar_one()
     lifecycle_v2 = (await db_session.execute(select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_version_id == v2.id))).scalar_one()
-    assert lifecycle_v1.stage == Stage.RETIRED
-    assert lifecycle_v2.stage == Stage.PRODUCTION
+    assert lifecycle_v1.stage == Stage.DEPRECATED
+    assert lifecycle_v2.stage == Stage.RECOMMENDED
 
     # Rollback: v1 is now `retired` - promote it again.
     req3 = await promotions_service.request_promotion(db_session, client1, actor=org["builder"], agent_version_id=v1.id)
-    assert req3.from_stage == Stage.RETIRED
+    assert req3.from_stage == Stage.DEPRECATED
     decision3 = await promotions_service.approve_promotion(db_session, client1, publisher, actor=org["reviewer"], promotion_request_id=req3.id)
     assert decision3.decision.value == "approve"
 
@@ -348,8 +348,8 @@ async def test_rollback_full_history_preserved(db_session, org):
     db_session.expire(lifecycle_v2)
     lifecycle_v1 = (await db_session.execute(select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_version_id == v1.id))).scalar_one()
     lifecycle_v2 = (await db_session.execute(select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_version_id == v2.id))).scalar_one()
-    assert lifecycle_v1.stage == Stage.PRODUCTION
-    assert lifecycle_v2.stage == Stage.RETIRED
+    assert lifecycle_v1.stage == Stage.RECOMMENDED
+    assert lifecycle_v2.stage == Stage.DEPRECATED
 
     rollback_events = (await db_session.execute(select(AuditEvent).where(AuditEvent.event_type == "promotion.rollback"))).scalars().all()
     assert len(rollback_events) == 1
@@ -436,5 +436,5 @@ async def test_concurrent_approvals_for_same_agent_only_one_ends_in_production(d
         lifecycles = (
             await verify_session.execute(select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_id == agent_id))
         ).scalars().all()
-        production_versions = [lc.agent_version_id for lc in lifecycles if lc.stage == Stage.PRODUCTION]
+        production_versions = [lc.agent_version_id for lc in lifecycles if lc.stage == Stage.RECOMMENDED]
         assert len(production_versions) == 1  # never both, never zero once one approval succeeded

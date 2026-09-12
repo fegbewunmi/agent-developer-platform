@@ -81,7 +81,7 @@ async def test_successful_run_transitions_to_candidate(db_session, org):
     lifecycle = (
         await db_session.execute(select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_version_id == version_id))
     ).scalar_one()
-    assert lifecycle.stage == Stage.CANDIDATE
+    assert lifecycle.stage == Stage.EVALUATED
 
     gates = (
         await db_session.execute(select(EvaluationGateResult).where(EvaluationGateResult.evaluation_run_reference_id == reference_id))
@@ -212,7 +212,7 @@ async def test_max_new_regressions_uses_production_baseline(db_session, org):
     db_session.add(baseline_version)
     await db_session.flush()
     db_session.add(
-        AgentVersionLifecycle(agent_version_id=baseline_version.id, agent_id=agent.id, stage=Stage.PRODUCTION, entered_by=org["admin"].id)
+        AgentVersionLifecycle(agent_version_id=baseline_version.id, agent_id=agent.id, stage=Stage.RECOMMENDED, entered_by=org["admin"].id)
     )
     baseline_ref = EvaluationRunReference(
         id=uuid.uuid4(), agent_version_id=baseline_version.id, evaluation_policy_id=policy.id,

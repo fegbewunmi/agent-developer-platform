@@ -8,7 +8,7 @@ import { Badge, PromotionStatusBadge } from "@/components/Badge";
 import { formatRelative } from "@/lib/format";
 import { requestPromotionAction, type ActionResult } from "./actions";
 
-const PROMOTABLE_STAGES: Stage[] = ["candidate", "retired"];
+const REVIEWABLE_STAGES: Stage[] = ["evaluated", "deprecated"];
 
 export function PromotionSection({
   agentId,
@@ -16,8 +16,8 @@ export function PromotionSection({
   stage,
   candidacy,
   promotionRequests,
-  productionVersionId,
-  productionVersionLabel,
+  recommendedVersionId,
+  recommendedVersionLabel,
   canRequest,
 }: {
   agentId: string;
@@ -25,13 +25,13 @@ export function PromotionSection({
   stage: Stage;
   candidacy: Candidacy | null;
   promotionRequests: PromotionRequest[];
-  productionVersionId: string | null;
-  productionVersionLabel: string | null;
+  recommendedVersionId: string | null;
+  recommendedVersionLabel: string | null;
   canRequest: boolean;
 }) {
   const pending = promotionRequests.find((r) => r.status === "pending");
-  const isPromotable = PROMOTABLE_STAGES.includes(stage);
-  const isRollback = stage === "retired";
+  const isReviewable = REVIEWABLE_STAGES.includes(stage);
+  const isRollback = stage === "deprecated";
 
   return (
     <>
@@ -43,38 +43,38 @@ export function PromotionSection({
         )}
       </Panel>
 
-      <Panel title={isRollback ? "Rollback" : "Promotion"} subtitle={isRollback ? "Promote this retired version back to production" : "Request production promotion"}>
-        {stage === "production" ? (
-          <p className="text-[12.5px] text-text-muted">This version is currently in production.</p>
-        ) : !isPromotable ? (
-          <p className="text-[12.5px] text-text-faint">Only candidate or retired versions can be promoted.</p>
+      <Panel title={isRollback ? "Rollback" : "Review"} subtitle={isRollback ? "Recommend this deprecated version again" : "Request review for recommended use"}>
+        {stage === "recommended" ? (
+          <p className="text-[12.5px] text-text-muted">This version is currently recommended.</p>
+        ) : !isReviewable ? (
+          <p className="text-[12.5px] text-text-faint">Only evaluated or deprecated versions can be reviewed.</p>
         ) : pending ? (
           <div className="rounded-md border border-warn/30 bg-warn-muted px-3 py-2.5">
             <p className="text-[12.5px] text-text">
-              A promotion request is <Link href={`/promotions/${pending.id}`} className="font-medium text-accent hover:underline">pending review</Link>.
+              A review request is <Link href={`/promotions/${pending.id}`} className="font-medium text-accent hover:underline">pending review</Link>.
             </p>
           </div>
         ) : (
           <>
-            {productionVersionId && (
+            {recommendedVersionId && (
               <p className="mb-3 text-[12px] text-text-faint">
-                Current production version: <Link href={`/agents/${agentId}/versions/${productionVersionId}`} className="mono text-text hover:text-accent">{productionVersionLabel}</Link>
+                Currently recommended version: <Link href={`/agents/${agentId}/versions/${recommendedVersionId}`} className="mono text-text hover:text-accent">{recommendedVersionLabel}</Link>
               </p>
             )}
             {!candidacy?.currently_eligible ? (
               <div className="rounded-md border border-danger/30 bg-danger-muted px-3 py-2.5 text-[12.5px] text-danger">
-                Not currently eligible - a promotion request would be rejected. See stale reasons above.
+                Not currently eligible - a review request would be rejected. See stale reasons above.
               </div>
             ) : canRequest ? (
               <RequestPromotionForm agentId={agentId} versionId={versionId} isRollback={isRollback} />
             ) : (
-              <p className="text-[12.5px] text-text-faint">You&apos;re not authorized to request a promotion for this agent.</p>
+              <p className="text-[12.5px] text-text-faint">You&apos;re not authorized to request review for this agent.</p>
             )}
           </>
         )}
       </Panel>
 
-      <Panel title="Promotion requests" subtitle="For this version">
+      <Panel title="Review requests" subtitle="For this version">
         {promotionRequests.length === 0 ? (
           <EmptyState title="None yet" />
         ) : (
@@ -108,7 +108,7 @@ export function FreshnessDisplay({ candidacy }: { candidacy: Candidacy }) {
       {candidacy.historically_passed && !candidacy.currently_eligible && (
         <p className="rounded-md border border-warn/20 bg-warn-muted/50 px-2.5 py-2 text-[11.5px] text-text-muted">
           This evaluation genuinely passed. It is not being marked as failed - the evidence has simply drifted
-          since then, so it can no longer support a new promotion without re-verification.
+          since then, so it can no longer support a new recommendation without re-verification.
         </p>
       )}
       {candidacy.stale_findings.length > 0 && (
@@ -136,7 +136,7 @@ function RequestPromotionForm({ agentId, versionId, isRollback }: { agentId: str
   if (!open) {
     return (
       <button onClick={() => setOpen(true)} className="w-full rounded-md bg-accent px-3 py-2 text-[13px] font-medium text-white hover:bg-accent/90">
-        {isRollback ? "Request rollback" : "Request promotion"}
+        {isRollback ? "Request rollback" : "Request review"}
       </button>
     );
   }

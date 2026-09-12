@@ -25,13 +25,22 @@ class Role(str, enum.Enum):
 
 
 class Stage(str, enum.Enum):
-    """AgentVersionLifecycle.stage - see docs/evaluation-and-promotion.md."""
+    """AgentVersionLifecycle.stage - see docs/evaluation-and-promotion.md.
+
+    Phase 8 product correction: renamed from
+    draft/evaluating/candidate/production/retired. "production" specifically
+    implied Orion managed deployment/traffic, which it never has and no
+    longer will - see docs/adrs/0023-registry-not-deployment-platform.md.
+    The state machine, invariants (one RECOMMENDED version per Agent,
+    no-self-approval, hard gates), and every service function are otherwise
+    unchanged - this is a vocabulary correction, not a redesign.
+    """
 
     DRAFT = "draft"
     EVALUATING = "evaluating"
-    CANDIDATE = "candidate"
-    PRODUCTION = "production"
-    RETIRED = "retired"
+    EVALUATED = "evaluated"
+    RECOMMENDED = "recommended"
+    DEPRECATED = "deprecated"
 
 
 class MCPClassification(str, enum.Enum):

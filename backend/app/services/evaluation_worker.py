@@ -223,7 +223,7 @@ async def _persist_success(
     lifecycle = (
         await db.execute(select(AgentVersionLifecycle).where(AgentVersionLifecycle.agent_version_id == reference.agent_version_id))
     ).scalar_one()
-    lifecycle.stage = Stage.CANDIDATE if all_passed else Stage.DRAFT
+    lifecycle.stage = Stage.EVALUATED if all_passed else Stage.DRAFT
     lifecycle.entered_by = actor_id
     lifecycle.entered_at = datetime.now(timezone.utc)
 
@@ -262,7 +262,7 @@ async def _persist_success(
 
 
 async def _resolve_baseline_comparison(db, agent: Agent, run, agent_eval_client: AgentEvalClient):
-    """The current production version's most recent completed evaluation on the
+    """The current recommended version's most recent completed evaluation on the
     same dataset, if one exists - see app/services/gates.py's max_new_regressions
     gate. None means "nothing to regress against," which is a trivial pass, not an
     error.
@@ -271,7 +271,7 @@ async def _resolve_baseline_comparison(db, agent: Agent, run, agent_eval_client:
         await db.execute(
             select(AgentVersionLifecycle)
             .join(AgentVersion, AgentVersion.id == AgentVersionLifecycle.agent_version_id)
-            .where(AgentVersion.agent_id == agent.id, AgentVersionLifecycle.stage == Stage.PRODUCTION)
+            .where(AgentVersion.agent_id == agent.id, AgentVersionLifecycle.stage == Stage.RECOMMENDED)
         )
     ).scalar_one_or_none()
     if prod_lifecycle is None:

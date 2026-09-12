@@ -73,7 +73,7 @@ class AgentVersionLifecycle(Base):
     amendment.
 
     agent_id is denormalized from AgentVersion.agent_id solely so the
-    single-production-version-per-agent constraint (the partial unique index
+    single-recommended-version-per-agent constraint (the partial unique index
     below) can live on this table.
     """
 
@@ -89,7 +89,9 @@ class AgentVersionLifecycle(Base):
 
     agent_version: Mapped["AgentVersion"] = relationship(back_populates="lifecycle")
 
-    # UNIQUE (agent_id) WHERE stage = 'production' is created as a partial
-    # index directly in migrations/versions/0002_agents_and_versions.py -
-    # SQLAlchemy's declarative Index() doesn't need to model it here since
-    # no ORM-level behavior depends on it, only the DB constraint does.
+    # UNIQUE (agent_id) WHERE stage = 'recommended' is created as a partial
+    # index directly in migrations/versions/0002_agents_and_versions.py, then
+    # its predicate renamed in migrations/versions/0017_stage_terminology_rename.py
+    # alongside the enum's RENAME VALUE (Phase 8, ADR-0023) - SQLAlchemy's
+    # declarative Index() doesn't need to model it here since no ORM-level
+    # behavior depends on it, only the DB constraint does.

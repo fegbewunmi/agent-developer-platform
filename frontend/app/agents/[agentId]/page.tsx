@@ -81,7 +81,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
                           <Link href={`/agents/${agentId}/versions/${v.id}`} className="mono font-medium text-text hover:text-accent">
                             {v.version_label}
                           </Link>
-                          {v.id === agent.production_version_id && <span className="ml-2 text-[11px] text-ok">current production</span>}
+                          {v.id === agent.recommended_version_id && <span className="ml-2 text-[11px] text-ok">current recommended</span>}
                         </td>
                         <td className="px-2 py-2.5">
                           {stageByVersion.get(v.id) ? <StageBadge stage={stageByVersion.get(v.id)!} /> : <span className="text-text-faint">—</span>}
@@ -96,7 +96,7 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
             )}
           </Panel>
 
-          <Panel title="Promotion history" subtitle="Why is the current production version actually in production?">
+          <Panel title="Review history" subtitle="Why is the current version actually recommended?">
             {history.length === 0 ? (
               <EmptyState title="No promotion requests yet" />
             ) : (
@@ -128,10 +128,10 @@ export default async function AgentDetailPage({ params }: { params: Promise<{ ag
           <Panel title="Identity">
             <dl className="divide-y divide-border">
               <KeyValue label="Team">{team?.name ?? "—"}</KeyValue>
-              <KeyValue label="Production version">
-                {agent.production_version_id ? (
-                  <Link href={`/agents/${agentId}/versions/${agent.production_version_id}`} className="mono text-accent hover:underline">
-                    {agent.production_version_label}
+              <KeyValue label="Recommended version">
+                {agent.recommended_version_id ? (
+                  <Link href={`/agents/${agentId}/versions/${agent.recommended_version_id}`} className="mono text-accent hover:underline">
+                    {agent.recommended_version_label}
                   </Link>
                 ) : (
                   <span className="text-text-faint">none</span>

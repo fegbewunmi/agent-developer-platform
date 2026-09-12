@@ -39,10 +39,11 @@ class PromotionRequest(Base):
     evaluation_policy_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("evaluation_policies.id"), nullable=False)
     capability_grant_snapshot_hash: Mapped[str | None] = mapped_column(String, nullable=True)
     capability_grant_snapshot: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    # Historical context only - which version (if any) was in production when
-    # this request was created. Never re-read as "the current production
+    # Historical context only - which version (if any) was recommended when
+    # this request was created. Never re-read as "the current recommended
     # version" at decision time; app/services/promotions.py always re-derives
-    # that live.
+    # that live. Column name unchanged since Phase 8's terminology rename
+    # (ADR-0023) - see the API layer's field-name mapping in app/api/promotions.py.
     production_version_id_at_request: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("agent_versions.id"), nullable=True
     )

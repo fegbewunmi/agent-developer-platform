@@ -156,8 +156,8 @@ async def list_pinned_skill_versions(db: AsyncSession, version_id: uuid.UUID) ->
 
 
 async def get_catalog_overview(db: AsyncSession) -> dict[uuid.UUID, dict]:
-    """Phase 5: the Agent catalog page needs "which version is in
-    production" and a lifecycle-status rollup per Agent without an N+1 query
+    """Phase 5: the Agent catalog page needs "which version is
+    recommended" and a lifecycle-status rollup per Agent without an N+1 query
     per row - a display aggregation over AgentVersionLifecycle, not new
     domain logic (every fact here is already what
     app/models/agent.py::AgentVersionLifecycle.stage means)."""
@@ -168,10 +168,10 @@ async def get_catalog_overview(db: AsyncSession) -> dict[uuid.UUID, dict]:
     for lifecycle, version in rows.all():
         entry = overview.setdefault(
             lifecycle.agent_id,
-            {"production_version_id": None, "production_version_label": None, "stage_counts": {}},
+            {"recommended_version_id": None, "recommended_version_label": None, "stage_counts": {}},
         )
         entry["stage_counts"][lifecycle.stage.value] = entry["stage_counts"].get(lifecycle.stage.value, 0) + 1
-        if lifecycle.stage == Stage.PRODUCTION:
-            entry["production_version_id"] = str(version.id)
-            entry["production_version_label"] = version.version_label
+        if lifecycle.stage == Stage.RECOMMENDED:
+            entry["recommended_version_id"] = str(version.id)
+            entry["recommended_version_label"] = version.version_label
     return overview

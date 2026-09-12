@@ -24,7 +24,7 @@ def _wire_fake_client(fake_client: FakeAgentEvalClient):
     app.dependency_overrides[get_job_dispatcher] = lambda: _RecordingNoOpDispatcher()
 
 
-async def test_list_agents_includes_production_version(client, org, headers_for):
+async def test_list_agents_includes_recommended_version(client, org, headers_for):
     agent_resp = await client.post(
         "/v1/agents", json={"name": "catalog-agent", "team_id": str(org["team_a"].id)}, headers=headers_for(org["builder"])
     )
@@ -39,7 +39,7 @@ async def test_list_agents_includes_production_version(client, org, headers_for)
 
     list_resp = await client.get("/v1/agents", headers=headers_for(org["viewer"]))
     entry = next(a for a in list_resp.json() if a["id"] == agent_id)
-    assert entry["production_version_id"] is None  # still draft, not production
+    assert entry["recommended_version_id"] is None  # still draft, not recommended
     assert entry["stage_counts"] == {"draft": 1}
 
     detail_resp = await client.get(f"/v1/agents/{agent_id}", headers=headers_for(org["viewer"]))
@@ -176,14 +176,14 @@ async def test_mcp_tool_grants_reverse_lookup(client, org, headers_for):
     assert grants.json()[0]["version_label"] == "1.0.0"
 
 
-async def test_dashboard_summary_counts_production_and_candidate(client, org, headers_for):
+async def test_dashboard_summary_counts_recommended_and_evaluated(client, org, headers_for):
     agent_id, version_id, fake_client = await _make_candidate_via_api(client, org, headers_for, "dashboard-agent")
     _wire_fake_client(fake_client)
 
     summary = await client.get("/v1/dashboard/summary", headers=headers_for(org["admin"]))
     assert summary.status_code == 200
     body = summary.json()
-    assert body["counts"]["candidate_versions"] >= 1
+    assert body["counts"]["evaluated_versions"] >= 1
     assert isinstance(body["needs_attention"], list)
     assert isinstance(body["recent_activity"], list)
     assert any(item["type"] == "stale_candidate" for item in body["needs_attention"]) is False  # freshly passed, not stale

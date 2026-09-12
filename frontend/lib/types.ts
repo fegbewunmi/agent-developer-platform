@@ -5,7 +5,7 @@
 
 export type Role = "viewer" | "builder" | "reviewer" | "admin";
 
-export type Stage = "draft" | "evaluating" | "candidate" | "production" | "retired";
+export type Stage = "draft" | "evaluating" | "evaluated" | "recommended" | "deprecated";
 
 export type MCPClassification = "read" | "write";
 
@@ -37,8 +37,8 @@ export interface Agent {
   team_id: string;
   description: string | null;
   is_representative_data: boolean;
-  production_version_id?: string | null;
-  production_version_label?: string | null;
+  recommended_version_id?: string | null;
+  recommended_version_label?: string | null;
   stage_counts?: Record<string, number>;
 }
 
@@ -223,7 +223,7 @@ export interface PromotionRequest {
   evaluation_run_reference_id: string;
   evaluation_policy_id: string;
   capability_grant_snapshot_hash: string | null;
-  production_version_id_at_request: string | null;
+  recommended_version_id_at_request: string | null;
   freshness_snapshot: FreshnessSnapshot | null;
   status: PromotionRequestStatus;
   reason: string | null;
@@ -245,7 +245,7 @@ export interface AuditEvent {
 }
 
 export interface NeedsAttentionItem {
-  type: "stale_candidate" | "blocked_promotion" | "pending_review" | "stale_production_evidence" | "unhealthy_mcp";
+  type: "stale_evaluated" | "blocked_review" | "pending_review" | "stale_recommended_evidence" | "unhealthy_mcp";
   agent_id?: string;
   agent_name?: string;
   agent_version_id?: string;
@@ -261,11 +261,11 @@ export interface NeedsAttentionItem {
 
 export interface DashboardSummary {
   counts: {
-    production_agents: number;
-    candidate_versions: number;
-    pending_promotion_reviews: number;
-    blocked_promotions: number;
-    stale_candidate_evidence: number;
+    recommended_agents: number;
+    evaluated_versions: number;
+    pending_reviews: number;
+    blocked_reviews: number;
+    stale_evaluated_evidence: number;
     unhealthy_mcp_servers: number;
   };
   needs_attention: NeedsAttentionItem[];

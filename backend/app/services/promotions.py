@@ -1,19 +1,22 @@
-"""Promotion request/decision flow - docs/evaluation-and-promotion.md's promotion
+"""Review request/decision flow - docs/evaluation-and-promotion.md's review
 lifecycle, docs/adrs/0018-promotion-request-immutability.md,
-docs/adrs/0007-promotion-state-machine.md.
+docs/adrs/0007-promotion-state-machine.md, docs/adrs/0023-registry-not-deployment-platform.md.
 
 A PromotionRequest captures the full decision context at request time (not just
 agent_version_id - see migrations/versions/0014_promotion_request_snapshot.py).
-Deciding it (approve/reject) re-checks freshness LIVE, right before the decision,
-producing a second, independent snapshot - "eligible when requested" vs "eligible
-when reviewed" are both permanent, stored facts (ADR-0018), never silently
-recomputed or refreshed on the caller's behalf.
+The class/table name is unchanged since Phase 8's terminology correction
+(ADR-0023) - "promotion" doesn't itself imply deployment the way "production"
+did, so only the Stage vocabulary and user-facing copy were renamed, not this
+entity. Deciding it (approve/reject) re-checks freshness LIVE, right before the
+decision, producing a second, independent snapshot - "eligible when requested"
+vs "eligible when reviewed" are both permanent, stored facts (ADR-0018), never
+silently recomputed or refreshed on the caller's behalf.
 
-candidate/retired are both legal source stages for a promotion request
-(docs/evaluation-and-promotion.md's state diagram: `candidate -> production` and
-`retired -> production` (rollback) are the same transition, gated the same way -
-ADR-0007's Phase 4 update resolves docs/open-questions.md item 2 in favor of
-"gates stay hard even for rollback," no bypass).
+evaluated/deprecated are both legal source stages for a review request
+(docs/evaluation-and-promotion.md's state diagram: `evaluated -> recommended`
+and `deprecated -> recommended` (rollback) are the same transition, gated the
+same way - ADR-0007's Phase 4 update resolves docs/open-questions.md item 2 in
+favor of "gates stay hard even for rollback," no bypass).
 """
 import logging
 import uuid
@@ -40,12 +43,12 @@ from app.services.freshness import FreshnessResult
 
 logger = logging.getLogger(__name__)
 
-# Both legal source stages for `-> production`, per
-# docs/evaluation-and-promotion.md's state diagram: an ordinary promotion
-# (candidate) and a rollback (retired) are gated identically - no separate,
-# weaker rollback path. `draft`/`evaluating`/`production` cannot receive a
+# Both legal source stages for `-> recommended`, per
+# docs/evaluation-and-promotion.md's state diagram: an ordinary review
+# (evaluated) and a rollback (deprecated) are gated identically - no separate,
+# weaker rollback path. `draft`/`evaluating`/`recommended` cannot receive a
 # PromotionRequest at all.
-_PROMOTABLE_SOURCE_STAGES = frozenset({Stage.CANDIDATE, Stage.RETIRED})
+_PROMOTABLE_SOURCE_STAGES = frozenset({Stage.EVALUATED, Stage.DEPRECATED})
 
 
 async def _get_agent_version_and_agent(db: AsyncSession, agent_version_id: uuid.UUID) -> tuple[AgentVersion, Agent]:
@@ -73,7 +76,7 @@ async def _get_current_production_lifecycle(db: AsyncSession, agent_id: uuid.UUI
     return (
         await db.execute(
             select(AgentVersionLifecycle).where(
-                AgentVersionLifecycle.agent_id == agent_id, AgentVersionLifecycle.stage == Stage.PRODUCTION
+                AgentVersionLifecycle.agent_id == agent_id, AgentVersionLifecycle.stage == Stage.RECOMMENDED
             )
         )
     ).scalar_one_or_none()
@@ -108,8 +111,8 @@ async def request_promotion(
     lifecycle = await _get_lifecycle(db, agent_version_id)
     if lifecycle.stage not in _PROMOTABLE_SOURCE_STAGES:
         raise ConflictError(
-            f"agent version {agent_version_id} is in stage {lifecycle.stage.value!r}; a promotion to "
-            f"production may only be requested from candidate (ordinary) or retired (rollback)"
+            f"agent version {agent_version_id} is in stage {lifecycle.stage.value!r}; review may only be "
+            f"requested from evaluated (ordinary) or deprecated (rollback)"
         )
 
     existing_pending = (
@@ -153,7 +156,7 @@ async def request_promotion(
         id=uuid.uuid4(),
         agent_version_id=agent_version_id,
         from_stage=lifecycle.stage,
-        to_stage=Stage.PRODUCTION,
+        to_stage=Stage.RECOMMENDED,
         requested_by=actor.id,
         evaluation_run_reference_id=reference.id,
         evaluation_policy_id=reference.evaluation_policy_id,
@@ -184,10 +187,10 @@ async def request_promotion(
             "agent_version_id": str(agent_version_id),
             "agent_id": str(agent.id),
             "from_stage": lifecycle.stage.value,
-            "to_stage": Stage.PRODUCTION.value,
+            "to_stage": Stage.RECOMMENDED.value,
             "evaluation_run_reference_id": str(reference.id),
             "evaluation_policy_id": str(reference.evaluation_policy_id),
-            "is_rollback": lifecycle.stage == Stage.RETIRED,
+            "is_rollback": lifecycle.stage == Stage.DEPRECATED,
         },
     )
     await db.commit()
@@ -227,19 +230,19 @@ async def approve_promotion(
     if not permissions.demo_containment_ok(actor, agent.team_id):
         raise PermissionDeniedError("not authorized to decide this promotion request")
 
-    # Serialize every decision touching this Agent's production slot. An
+    # Serialize every decision touching this Agent's recommended slot. An
     # advisory lock keyed on the Agent (not a row-level FOR UPDATE on any
     # single AgentVersionLifecycle row) is the right primitive here: approval
-    # can rewrite TWO lifecycle rows (the newly-promoted version's and the
-    # previously-production version's), and the previously-production row may
-    # not exist at all - see docs/adrs/0007-promotion-state-machine.md.
+    # can rewrite TWO lifecycle rows (the newly-approved version's and the
+    # previously-recommended version's), and the previously-recommended row
+    # may not exist at all - see docs/adrs/0007-promotion-state-machine.md.
     # The partial unique index on AgentVersionLifecycle (agent_id) WHERE
-    # stage='production' remains the final DB-level backstop regardless.
+    # stage='recommended' remains the final DB-level backstop regardless.
     await db.execute(text("SELECT pg_advisory_xact_lock(hashtext(:agent_id))"), {"agent_id": str(agent.id)})
 
     # Re-read after acquiring the lock: another decision on this same request
-    # (or a concurrent one for a different candidate of the same Agent) may
-    # have committed while this call was waiting.
+    # (or a concurrent one for a different evaluated version of the same
+    # Agent) may have committed while this call was waiting.
     await db.refresh(request)
     if request.status != PromotionRequestStatus.PENDING:
         raise ConflictError(
@@ -257,7 +260,7 @@ async def approve_promotion(
     # written (Phase 3), so this can only fail if the request's own
     # evaluation_run_reference_id is somehow wrong - genuinely expected to
     # always pass, kept explicit per docs/evaluation-and-promotion.md's
-    # 10-step production-transition sequence.
+    # review/approval sequence.
     gate_rows = (
         await db.execute(
             select(EvaluationGateResult).where(
@@ -297,23 +300,23 @@ async def approve_promotion(
 
     current_prod = await _get_current_production_lifecycle(db, agent.id)
     now = datetime.now(timezone.utc)
-    is_rollback = request.from_stage == Stage.RETIRED
+    is_rollback = request.from_stage == Stage.DEPRECATED
     supersedes_existing_production = current_prod is not None and current_prod.agent_version_id != lifecycle.agent_version_id
 
-    # Retire the old production row BEFORE promoting the new one, as two
+    # Deprecate the old recommended row BEFORE approving the new one, as two
     # separate statements (flush in between) - the partial unique index
-    # `UNIQUE (agent_id) WHERE stage='production'` is checked immediately per
+    # `UNIQUE (agent_id) WHERE stage='recommended'` is checked immediately per
     # row, not deferred to transaction end, so batching both UPDATEs together
-    # (or promoting first) can transiently violate it even though the final
+    # (or approving first) can transiently violate it even though the final
     # state is valid. Real bug, caught by tests/test_promotions.py's rollback
     # test against the real constraint - not merely reasoned about.
     if supersedes_existing_production:
-        current_prod.stage = Stage.RETIRED
+        current_prod.stage = Stage.DEPRECATED
         current_prod.entered_by = actor.id
         current_prod.entered_at = now
         await db.flush()
 
-    lifecycle.stage = Stage.PRODUCTION
+    lifecycle.stage = Stage.RECOMMENDED
     lifecycle.entered_by = actor.id
     lifecycle.entered_at = now
 
@@ -373,7 +376,7 @@ async def approve_promotion(
             payload={"agent_id": str(agent.id), "promotion_request_id": str(request.id)},
         )
 
-    # Outbox: written in the SAME transaction as the production transition
+    # Outbox: written in the SAME transaction as the recommendation change
     # above - never published before this commits. See
     # docs/adrs/0020-promotion-lifecycle-event-outbox.md.
     outbox = OutboxEvent(
@@ -397,7 +400,7 @@ async def approve_promotion(
     await db.commit()
     await db.refresh(decision)
     logger.info(
-        "promotion approved - production transition committed",
+        "promotion approved - recommendation change committed",
         extra={
             "promotion_request_id": str(request.id),
             "agent_id": str(agent.id),
@@ -452,11 +455,11 @@ async def reject_promotion(
     )
     freshness_dict = _freshness_to_dict(freshness)
 
-    # No lifecycle transition - a rejected candidate stays `candidate` (or
-    # `retired`, for a rejected rollback attempt). docs/evaluation-and-
-    # promotion.md's state diagram has no `candidate -> draft` edge; the only
-    # way out of candidate other than production is the explicit, separate
-    # `candidate -> retired` abandon transition (not built this phase - see
+    # No lifecycle transition - a rejected version stays `evaluated` (or
+    # `deprecated`, for a rejected rollback attempt). docs/evaluation-and-
+    # promotion.md's state diagram has no `evaluated -> draft` edge; the only
+    # way out of evaluated other than recommended is the explicit, separate
+    # `evaluated -> deprecated` abandon transition (not built this phase - see
     # docs/adrs/0007-promotion-state-machine.md). The version remains
     # eligible for a fresh PromotionRequest once the old one is no longer
     # pending.
@@ -550,7 +553,7 @@ async def list_promotion_requests_for_version(db: AsyncSession, agent_version_id
 
 async def list_promotion_history_for_agent(db: AsyncSession, agent_id: uuid.UUID) -> list[PromotionRequest]:
     """Every PromotionRequest across every AgentVersion this Agent has ever
-    had - "why is this exact version in production right now?" is answerable
+    had - "why is this exact version recommended right now?" is answerable
     from this list plus each request's PromotionDecision, without
     reconstructing intent from mutable tables (docs/audit-model.md)."""
     result = await db.execute(

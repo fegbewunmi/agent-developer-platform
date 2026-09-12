@@ -28,8 +28,8 @@ export default async function PromotionsPage({
   return (
     <>
       <PageHeader
-        title="Promotions"
-        subtitle="Every request to promote an AgentVersion to production - review queue and full history."
+        title="Reviews"
+        subtitle="Every request to recommend an AgentVersion for organizational use - review queue and full history."
       />
 
       <div className="mb-4 flex flex-wrap gap-1.5">
@@ -50,9 +50,9 @@ export default async function PromotionsPage({
 
       <Panel>
         {!result.ok ? (
-          <ErrorPanel message={`Couldn't load promotion requests: ${result.message}`} />
+          <ErrorPanel message={`Couldn't load review requests: ${result.message}`} />
         ) : result.data.length === 0 ? (
-          <EmptyState title="Nothing here" detail={activeStatus === "pending" ? "No promotions are currently awaiting review." : undefined} />
+          <EmptyState title="Nothing here" detail={activeStatus === "pending" ? "No reviews are currently awaiting a decision." : undefined} />
         ) : (
           <ul className="flex flex-col divide-y divide-border -mx-4 -my-4">
             {result.data.map((r) => {

@@ -80,7 +80,7 @@ async def test_promotion_full_flow_via_api(client, org, headers_for):
     assert request_resp.status_code == 201, request_resp.text
     body = request_resp.json()
     assert body["status"] == "pending"
-    assert body["from_stage"] == "candidate"
+    assert body["from_stage"] == "evaluated"
     request_id = body["id"]
 
     approve_resp = await client.post(
@@ -95,7 +95,7 @@ async def test_promotion_full_flow_via_api(client, org, headers_for):
     assert get_resp.json()["decision"]["decision"] == "approve"
 
     version_detail = await client.get(f"/v1/agent-versions/{version_id}", headers=headers_for(org["admin"]))
-    assert version_detail.json()["stage"] == "production"
+    assert version_detail.json()["stage"] == "recommended"
 
     history_resp = await client.get(f"/v1/agents/{agent_id}/promotion-history", headers=headers_for(org["admin"]))
     assert history_resp.status_code == 200
@@ -140,7 +140,7 @@ async def test_promotion_rejection_via_api_leaves_candidate(client, org, headers
     assert reject_resp.json()["decision"] == "reject"
 
     version_detail = await client.get(f"/v1/agent-versions/{version_id}", headers=headers_for(org["admin"]))
-    assert version_detail.json()["stage"] == "candidate"
+    assert version_detail.json()["stage"] == "evaluated"
 
 
 async def test_promotion_requires_auth(client):

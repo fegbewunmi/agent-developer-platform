@@ -18,7 +18,7 @@ class OutboxEvent(Base):
     downstream ever consumes it).
 
     Written in the SAME transaction as the domain change it describes (e.g.
-    app/services/promotions.py's production transition) - never published to
+    app/services/promotions.py's recommendation change) - never published to
     Pub/Sub before that transaction commits. Publishing itself happens as a
     separate, best-effort step after commit (app/services/event_publisher.py),
     the same "commit first, dispatch after" shape as

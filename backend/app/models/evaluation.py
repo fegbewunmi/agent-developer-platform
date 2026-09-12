@@ -35,7 +35,7 @@ class EvaluationPolicy(Base):
     # {"grounding_judge": "v1", "completion_check": "v1", ...} - required evaluator KEY,
     # pinned to a required VERSION (not just presence) - "required evaluator/version" gate.
     required_evaluator_keys: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    # Max regressions tolerated vs. the current production version's most recent
+    # Max regressions tolerated vs. the current recommended version's most recent
     # evaluation on the same dataset (0 = zero tolerance, the Phase 0 default behavior,
     # generalized to a count per the Phase 3 brief's "maximum allowed regressions").
     max_new_regressions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

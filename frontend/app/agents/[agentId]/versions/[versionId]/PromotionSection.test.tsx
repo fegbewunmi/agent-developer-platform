@@ -10,7 +10,7 @@ const { FreshnessDisplay } = await import("./PromotionSection");
 function candidacy(overrides: Partial<Candidacy> = {}): Candidacy {
   return {
     agent_version_id: "v1",
-    current_stage: "candidate",
+    current_stage: "evaluated",
     evaluation_run_reference_id: "ref-1",
     historically_passed: true,
     currently_eligible: true,

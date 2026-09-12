@@ -133,14 +133,14 @@ def test_only_one_production_version_per_agent(app_conn):
                 (v, agent_id, label, "{}", f"hash-{label}", user_id),
             )
         cur.execute(
-            "INSERT INTO agent_version_lifecycle (agent_version_id, agent_id, stage, entered_by) VALUES (%s, %s, 'production', %s)",
+            "INSERT INTO agent_version_lifecycle (agent_version_id, agent_id, stage, entered_by) VALUES (%s, %s, 'recommended', %s)",
             (v1, agent_id, user_id),
         )
     app_conn.commit()
 
     with app_conn.cursor() as cur, pytest.raises(psycopg.errors.UniqueViolation):
         cur.execute(
-            "INSERT INTO agent_version_lifecycle (agent_version_id, agent_id, stage, entered_by) VALUES (%s, %s, 'production', %s)",
+            "INSERT INTO agent_version_lifecycle (agent_version_id, agent_id, stage, entered_by) VALUES (%s, %s, 'recommended', %s)",
             (v2, agent_id, user_id),
         )
     app_conn.rollback()
@@ -167,11 +167,11 @@ def test_second_agent_can_independently_have_a_production_version(app_conn):
             (v2, agent2_id, "1.0.0", "{}", "hash-2", user_id),
         )
         cur.execute(
-            "INSERT INTO agent_version_lifecycle (agent_version_id, agent_id, stage, entered_by) VALUES (%s, %s, 'production', %s)",
+            "INSERT INTO agent_version_lifecycle (agent_version_id, agent_id, stage, entered_by) VALUES (%s, %s, 'recommended', %s)",
             (v1, agent1_id, user_id),
         )
         cur.execute(
-            "INSERT INTO agent_version_lifecycle (agent_version_id, agent_id, stage, entered_by) VALUES (%s, %s, 'production', %s)",
+            "INSERT INTO agent_version_lifecycle (agent_version_id, agent_id, stage, entered_by) VALUES (%s, %s, 'recommended', %s)",
             (v2, agent2_id, user_id),
         )
     app_conn.commit()
@@ -213,7 +213,7 @@ def test_promotion_decision_rejects_self_approval(app_conn):
             """INSERT INTO promotion_requests
                (id, agent_version_id, from_stage, to_stage, requested_by,
                 evaluation_run_reference_id, evaluation_policy_id)
-               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s)""",
+               VALUES (%s, %s, 'evaluated', 'recommended', %s, %s, %s)""",
             (request_id, version_id, user_id, reference_id, policy_id),
         )
     app_conn.commit()
@@ -246,7 +246,7 @@ def test_promotion_decision_by_a_different_user_succeeds(app_conn):
             """INSERT INTO promotion_requests
                (id, agent_version_id, from_stage, to_stage, requested_by,
                 evaluation_run_reference_id, evaluation_policy_id)
-               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s)""",
+               VALUES (%s, %s, 'evaluated', 'recommended', %s, %s, %s)""",
             (request_id, version_id, requester_id, reference_id, policy_id),
         )
         cur.execute(
@@ -273,7 +273,7 @@ def test_promotion_request_status_update_succeeds(app_conn):
             """INSERT INTO promotion_requests
                (id, agent_version_id, from_stage, to_stage, requested_by,
                 evaluation_run_reference_id, evaluation_policy_id)
-               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s)""",
+               VALUES (%s, %s, 'evaluated', 'recommended', %s, %s, %s)""",
             (request_id, version_id, user_id, reference_id, policy_id),
         )
     app_conn.commit()
@@ -301,7 +301,7 @@ def test_promotion_request_non_status_column_update_is_rejected(app_conn):
             """INSERT INTO promotion_requests
                (id, agent_version_id, from_stage, to_stage, requested_by,
                 evaluation_run_reference_id, evaluation_policy_id, reason)
-               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s, 'original reason')""",
+               VALUES (%s, %s, 'evaluated', 'recommended', %s, %s, %s, 'original reason')""",
             (request_id, version_id, user_id, reference_id, policy_id),
         )
     app_conn.commit()
@@ -331,7 +331,7 @@ def test_promotion_decision_update_and_delete_are_rejected(app_conn):
             """INSERT INTO promotion_requests
                (id, agent_version_id, from_stage, to_stage, requested_by,
                 evaluation_run_reference_id, evaluation_policy_id)
-               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s)""",
+               VALUES (%s, %s, 'evaluated', 'recommended', %s, %s, %s)""",
             (request_id, version_id, requester_id, reference_id, policy_id),
         )
         decision_id = uuid.uuid4()
@@ -366,7 +366,7 @@ def test_one_pending_promotion_request_per_version(app_conn):
             """INSERT INTO promotion_requests
                (id, agent_version_id, from_stage, to_stage, requested_by,
                 evaluation_run_reference_id, evaluation_policy_id)
-               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s)""",
+               VALUES (%s, %s, 'evaluated', 'recommended', %s, %s, %s)""",
             (uuid.uuid4(), version_id, user_id, reference_id, policy_id),
         )
     app_conn.commit()
@@ -376,7 +376,7 @@ def test_one_pending_promotion_request_per_version(app_conn):
             """INSERT INTO promotion_requests
                (id, agent_version_id, from_stage, to_stage, requested_by,
                 evaluation_run_reference_id, evaluation_policy_id)
-               VALUES (%s, %s, 'candidate', 'production', %s, %s, %s)""",
+               VALUES (%s, %s, 'evaluated', 'recommended', %s, %s, %s)""",
             (uuid.uuid4(), version_id, user_id, reference_id, policy_id),
         )
     app_conn.rollback()

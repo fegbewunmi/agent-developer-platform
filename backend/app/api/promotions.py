@@ -38,7 +38,9 @@ def _request_to_dict(r: PromotionRequest) -> dict:
         "evaluation_run_reference_id": str(r.evaluation_run_reference_id),
         "evaluation_policy_id": str(r.evaluation_policy_id),
         "capability_grant_snapshot_hash": r.capability_grant_snapshot_hash,
-        "production_version_id_at_request": str(r.production_version_id_at_request) if r.production_version_id_at_request else None,
+        # Column name unchanged (production_version_id_at_request) - internal
+        # schema detail; API/UI vocabulary is what Phase 8 renamed.
+        "recommended_version_id_at_request": str(r.production_version_id_at_request) if r.production_version_id_at_request else None,
         "freshness_snapshot": r.freshness_snapshot,
         "status": r.status.value,
         "reason": r.reason,

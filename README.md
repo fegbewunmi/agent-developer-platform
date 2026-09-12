@@ -34,7 +34,9 @@ The deployed instance has a real, public demo - no account needed. Open the logi
 
 ## Why this exists
 
-Orion Commerce has multiple teams building AI agents on different frameworks, models, skill sets, and MCP tool integrations. Today there is no shared answer to basic governance questions: which version is in production, what exactly it's built from, what evaluation evidence supported promoting it, which tools it can call and which of those are write-capable, or who approved it. This platform exists to answer those questions consistently across teams, without becoming a second runtime, a second evaluation system, or a second MCP implementation.
+Orion Commerce has multiple teams building AI agents on different frameworks, models, skill sets, and MCP tool integrations. Today there is no shared answer to basic governance questions: which version is recommended for use, what exactly it's built from, what evaluation evidence supported promoting it, which tools it can call and which of those are write-capable, or who approved it. This platform exists to answer those questions consistently across teams, without becoming a second runtime, a second evaluation system, a second MCP implementation, or a deployment/CI system in its own right - see [ADR-0023](docs/adrs/0023-registry-not-deployment-platform.md).
+
+"What exactly it's built from" is a real, verifiable claim for CI-integrated agents, not just a form field: `incident-investigator`'s real GitHub Actions pipeline publishes each version to this platform with the real commit it was built from, authenticated as a dedicated CI machine identity via Workload Identity Federation - no human can type in a competing `AgentVersion` for that agent. See [ADR-0024](docs/adrs/0024-ci-publishing-machine-identity.md) and [`docs/phase-notes/phase-8.md`](docs/phase-notes/phase-8.md).
 
 ## Real integrations, not simulated ones
 

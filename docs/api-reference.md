@@ -18,12 +18,12 @@ No `PATCH`/`PUT` route exists anywhere for `AgentVersion`, `SkillVersion`, or an
 
 | Method & path | Auth | Notes |
 |---|---|---|
-| `GET /v1/agents` | any authenticated user | Includes `is_representative_data`, and (Phase 5) `production_version_id`/`production_version_label`/`stage_counts` - a display aggregation over `AgentVersionLifecycle`, not new domain logic |
-| `POST /v1/agents` | Builder (own team), Reviewer, Admin | `409` on duplicate name |
+| `GET /v1/agents` | any authenticated user | Includes `is_representative_data`, and (Phase 5) `recommended_version_id`/`recommended_version_label`/`stage_counts` (renamed from `production_version_id`/`production_version_label` in Phase 8 - see [ADR-0023](adrs/0023-registry-not-deployment-platform.md)) - a display aggregation over `AgentVersionLifecycle`, not new domain logic. Also includes (Phase 8) `requires_ci_provenance` |
+| `POST /v1/agents` | Builder (own team), Reviewer, Admin | `409` on duplicate name. Body accepts (Phase 8) `requires_ci_provenance` (default `false`) - once `true`, only `POST /internal/ci/agents/{id}/versions` may create versions for this agent |
 | `GET /v1/agents/{agent_id}` | any authenticated user | Same Phase 5 enrichment as the list endpoint |
 | `GET /v1/agents/{agent_id}/versions` | any authenticated user | |
-| `POST /v1/agents/{agent_id}/versions` | Builder (own team), Reviewer, Admin | Body: `{"manifest": {...}}` (see `docs/agent-manifest.md`). `409` on duplicate `version_label`; `422` if the manifest references an unresolvable skill/tool or an incompatible framework |
-| `GET /v1/agent-versions/{version_id}` | any authenticated user | Includes `stage` and `pinned_skill_version_ids` |
+| `POST /v1/agents/{agent_id}/versions` | Builder (own team), Reviewer, Admin | Body: `{"manifest": {...}}` (see `docs/agent-manifest.md`). `409` on duplicate `version_label`; `422` if the manifest references an unresolvable skill/tool or an incompatible framework; (Phase 8) `403` if the agent has `requires_ci_provenance=true` - manual creation is locked out for CI-integrated agents |
+| `GET /v1/agent-versions/{version_id}` | any authenticated user | Includes `stage` and `pinned_skill_version_ids`, and (Phase 8) `provenance` (`null` unless published via CI) |
 | `GET /v1/agent-versions/{version_id}/manifest` | any authenticated user | Full manifest + `content_hash` |
 
 ## Audit (Phase 5)
@@ -36,7 +36,7 @@ No `PATCH`/`PUT` route exists anywhere for `AgentVersion`, `SkillVersion`, or an
 
 | Method & path | Auth | Notes |
 |---|---|---|
-| `GET /v1/dashboard/summary` | any authenticated user | Counts (production agents, candidate versions, pending-my-review, blocked promotions, stale candidate evidence, unhealthy MCP servers) plus a structured `needs_attention` list and recent activity. Runs live `check_freshness` calls, concurrently, against every candidate/production `AgentVersion` and pending `PromotionRequest` - see `docs/phase-notes/phase-5.md`'s "Bugs discovered" for why concurrency here matters |
+| `GET /v1/dashboard/summary` | any authenticated user | Counts (recommended agents, evaluated versions, pending-my-review, blocked promotions, stale evaluated-version evidence, unhealthy MCP servers) plus a structured `needs_attention` list and recent activity. Runs live `check_freshness` calls, concurrently, against every evaluated/recommended `AgentVersion` and pending `PromotionRequest` - see `docs/phase-notes/phase-5.md`'s "Bugs discovered" for why concurrency here matters |
 
 ## Skills
 
@@ -96,15 +96,15 @@ No generic update endpoint - every state transition is its own explicit action.
 
 | Method & path | Auth | Notes |
 |---|---|---|
-| `POST /v1/agent-versions/{agent_version_id}/promotion-requests` | Builder (own team), Reviewer, Admin | Body: `{"reason": "..." (optional)}`. `201` with the created `PromotionRequest` (full context snapshot - see [ADR-0018](adrs/0018-promotion-request-immutability.md)). `409` if the version isn't `candidate`/`retired`, if a pending request already exists for it, or if it isn't currently eligible (evidence not fresh, or no passing evaluation at all) |
+| `POST /v1/agent-versions/{agent_version_id}/promotion-requests` | Builder (own team), Reviewer, Admin | Body: `{"reason": "..." (optional)}`. `201` with the created `PromotionRequest` (full context snapshot - see [ADR-0018](adrs/0018-promotion-request-immutability.md)). `409` if the version isn't `evaluated`/`deprecated`, if a pending request already exists for it, or if it isn't currently eligible (evidence not fresh, or no passing evaluation at all) |
 | `GET /v1/agent-versions/{agent_version_id}/promotion-requests` | any authenticated user | All `PromotionRequest`s for this version, newest first |
 | `GET /v1/promotion-requests` | any authenticated user | Phase 5. The reviewer queue - every `PromotionRequest`, optionally filtered by `?status=`, enriched with agent/version/requester/decider display names (a display join, not new logic). Phase 7: bucketed by actor - a demo-team actor sees only the demo agent's requests, a real Orion actor never sees the demo agent's (`docs/adrs/0022-public-demo-sandbox.md`) |
 | `GET /v1/promotion-requests/{promotion_request_id}` | any authenticated user | The request plus its `PromotionDecision`, if one exists (`decision: null` while pending) |
-| `POST /v1/promotion-requests/{promotion_request_id}/approve` | Reviewer, Admin - never the requester, and (Phase 7) never a demo-team actor deciding a non-demo request | Body: `{"comment": "..." (optional)}`. `201` with the created `PromotionDecision`. Re-checks freshness live at decision time; `409` if no longer eligible (no production mutation happens), if the request was already decided, or if the cited gate results no longer all pass (defense-in-depth; expected unreachable since gate results are immutable) |
-| `POST /v1/promotion-requests/{promotion_request_id}/reject` | Reviewer, Admin - never the requester, and (Phase 7) never a demo-team actor deciding a non-demo request | Body: `{"comment": "..." (optional)}`. `201` with the created `PromotionDecision`. Never blocked by staleness - the cited `AgentVersion` stays `candidate`/`retired`, unchanged |
-| `GET /v1/agents/{agent_id}/promotion-history` | any authenticated user | Every `PromotionRequest` (with its decision, if any) across every `AgentVersion` this `Agent` has ever had, newest first - answers "why is this exact version in production right now?" without reconstructing intent from mutable tables |
+| `POST /v1/promotion-requests/{promotion_request_id}/approve` | Reviewer, Admin - never the requester, and (Phase 7) never a demo-team actor deciding a non-demo request | Body: `{"comment": "..." (optional)}`. `201` with the created `PromotionDecision`. Re-checks freshness live at decision time; `409` if no longer eligible (no recommended-version mutation happens), if the request was already decided, or if the cited gate results no longer all pass (defense-in-depth; expected unreachable since gate results are immutable) |
+| `POST /v1/promotion-requests/{promotion_request_id}/reject` | Reviewer, Admin - never the requester, and (Phase 7) never a demo-team actor deciding a non-demo request | Body: `{"comment": "..." (optional)}`. `201` with the created `PromotionDecision`. Never blocked by staleness - the cited `AgentVersion` stays `evaluated`/`deprecated`, unchanged |
+| `GET /v1/agents/{agent_id}/promotion-history` | any authenticated user | Every `PromotionRequest` (with its decision, if any) across every `AgentVersion` this `Agent` has ever had, newest first - answers "why is this exact version recommended right now?" without reconstructing intent from mutable tables |
 
-Rollback is not a separate endpoint - it's an ordinary `POST .../promotion-requests` against an old, `retired` `AgentVersion`, gated identically (see [`evaluation-and-promotion.md`](evaluation-and-promotion.md#promotion-lifecycle)).
+Rollback is not a separate endpoint - it's an ordinary `POST .../promotion-requests` against an old, `deprecated` `AgentVersion`, gated identically (see [`evaluation-and-promotion.md`](evaluation-and-promotion.md#promotion-lifecycle)).
 
 ## Public demo (Phase 7)
 
@@ -122,6 +122,14 @@ See [ADR-0022](adrs/0022-public-demo-sandbox.md) and `docs/phase-notes/phase-7.m
 | `POST /internal/tasks/evaluations/{reference_id}` | real application-level OIDC verification (`app/auth/cloud_tasks.py`), not Cloud Run IAM - see [ADR-0021](adrs/0021-cloud-tasks-application-level-push-auth.md) for why | Not for direct use; the real Cloud Tasks receiver target (`app/services/job_dispatch.py::CloudTasksDispatcher`). See `docs/gcp-architecture.md` |
 | `POST /internal/tasks/outbox/sweep` | same application-level OIDC verification as above | Phase 6: Cloud Scheduler's push target, retries any `OutboxEvent` still unpublished (`app/services/event_publisher.py::sweep_unpublished_outbox_events`) |
 | `POST /internal/tasks/demo/reset` | same application-level OIDC verification as above | Phase 7: Cloud Scheduler's push target (every 3h) for the public demo reset - closes abandoned pending requests, creates a fresh draft version (`app/services/demo.py::reset_demo_environment`) |
+
+## Internal (CI publishing)
+
+See [ADR-0024](adrs/0024-ci-publishing-machine-identity.md) and `docs/phase-notes/phase-8.md`.
+
+| Method & path | Auth | Notes |
+|---|---|---|
+| `POST /internal/ci/agents/{agent_id}/versions` | real application-level OIDC verification of a specific CI service account's Google-signed token (`app/auth/ci_publisher.py`), scoped by Workload Identity Federation to one specific GitHub repository - no stored key | Body: `{"manifest": {...}, "provenance": {"git_repo", "git_commit_sha", "git_ref"?, "image_digest"?}}`. The only route that may create an `AgentVersion` for an agent with `requires_ci_provenance=true` (also usable for agents without that flag). Idempotent by `git_commit_sha` - a retried publish for the same commit returns the existing version. Best-effort registers a live evaluation target in `agent-eval` (`POST /agents/{id}/versions` there) when `ci_publish_agent_eval_agent_id`/`ci_publish_target_base_url` are configured; a failure there never blocks the provenance publish itself |
 
 ## Error conventions
 

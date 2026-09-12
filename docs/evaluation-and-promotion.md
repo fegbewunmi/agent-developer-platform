@@ -1,6 +1,6 @@
 # Evaluation Integration and Promotion Lifecycle
 
-**Status: Phase 3 implemented and live-verified through `draft → evaluating → candidate`. `candidate → production` (human approval) is Phase 4 - not built yet.**
+**Status: fully implemented and live-verified, `draft → evaluating → evaluated → recommended → deprecated`, including rollback. `evaluated`/`recommended`/`deprecated` are Phase 8's renamed vocabulary for what Phase 3/4 built as `candidate`/`production`/`retired` - see [`docs/phase-notes/phase-8.md`](phase-notes/phase-8.md) and [ADR-0023](adrs/0023-registry-not-deployment-platform.md); the underlying state machine, `PromotionRequest`/`PromotionDecision` classes, and DB column names are unchanged.**
 
 ## The integration contract with Agent Evaluation Platform
 
@@ -68,7 +68,7 @@ sequenceDiagram
 
 - `thresholds` - `{"<dimension>": {"min_mean": <float>}, ...}` - one `min_dimension_score` gate per entry.
 - `required_evaluator_keys` - `{"<evaluator_key>": "<required_version>", ...}` - one `required_evaluator_version` gate per entry, checked against what was *actually submitted* to `agent-eval` at request time (not re-fetched live - that's freshness's job, below).
-- `max_new_regressions` (int, default `0`) - one `max_new_regressions` gate, comparing against the current production version's most recent completed evaluation on the same dataset. **Trivially passes** with no baseline if no production version exists yet for the agent - confirmed both in tests and live (Phase 3's real `incident-investigator` demo had no baseline and passed this gate with reason "no production baseline evaluation exists yet").
+- `max_new_regressions` (int, default `0`) - one `max_new_regressions` gate, comparing against the current recommended version's most recent completed evaluation on the same dataset. **Trivially passes** with no baseline if no recommended version exists yet for the agent - confirmed both in tests and live (Phase 3's real `incident-investigator` demo had no baseline and passed this gate with reason "no recommended baseline evaluation exists yet", under the terminology current at the time of writing).
 - `zero_failure_tags` (list of case tags) - one `zero_failures_for_tag` gate per tag, `0` rows if the list is empty (no criterion configured, no gate to check).
 - `min_completion_rate` (default `1.0`) - one `min_completion_rate` gate, computed from `case_runs[].status`.
 - **`capability_snapshot_consistency`** (always computed, not policy-configurable) - compares the capability-grant snapshot hash taken at evaluation-*request* time against a fresh one taken at *completion* time, catching "capability grants changed while evaluation was running" ([`failure-modes.md`](failure-modes.md)). Live-verified as a real failure trigger in `tests/test_evaluation_worker.py`.
@@ -80,7 +80,7 @@ A version becomes `candidate` only if **every** gate for that run passed - `all(
 
 ## Evidence freshness
 
-`app/services/freshness.py::check_freshness` draws the exact distinction the brief calls for: **"evaluation passed at the time"** (a permanent historical fact - `EvaluationGateResult.passed`, never recomputed) vs. **"evidence is still valid for promotion now"** (computed live, every call, never stored). A version can be `stage=candidate` while `currently_eligible=false`.
+`app/services/freshness.py::check_freshness` draws the exact distinction the brief calls for: **"evaluation passed at the time"** (a permanent historical fact - `EvaluationGateResult.passed`, never recomputed) vs. **"evidence is still valid for promotion now"** (computed live, every call, never stored). A version can be `stage=evaluated` while `currently_eligible=false`.
 
 Computed live against the most recent evaluation run whose gates all passed:
 
@@ -103,10 +103,10 @@ See the full enumeration of stale-evidence and unavailable-dependency scenarios 
 ## Promotion lifecycle
 
 ```
-draft → evaluating → candidate → production → retired
+draft → evaluating → evaluated → recommended → deprecated
 ```
 
-**Fully implemented as of Phase 4.** `candidate → production` (human `PromotionRequest`/`PromotionDecision` approval), rollback, and auto-retire-on-supersession all exist (`app/services/promotions.py`). `candidate/production → retired` as an explicit *manual abandon/retire* action (independent of supersession) is the one edge from Phase 0's original diagram not built - see the scope note below.
+**Fully implemented as of Phase 4** (renamed from `candidate`/`production`/`retired` in Phase 8 - vocabulary only, no behavior change). `evaluated → recommended` (human `PromotionRequest`/`PromotionDecision` approval), rollback, and auto-deprecate-on-supersession all exist (`app/services/promotions.py`). `evaluated/recommended → deprecated` as an explicit *manual abandon/retire* action (independent of supersession) is the one edge from Phase 0's original diagram not built - see the scope note below.
 
 ### Diagram: promotion state machine
 
@@ -115,11 +115,11 @@ stateDiagram-v2
     [*] --> draft: AgentVersion created
     draft --> evaluating: evaluation requested (implemented)
     evaluating --> evaluating: re-run requested\n(e.g. after infra flakiness) (implemented)
-    evaluating --> candidate: automated - all gates pass (implemented, live-verified)
+    evaluating --> evaluated: automated - all gates pass (implemented, live-verified)
     evaluating --> draft: automated - gate(s) fail,\nor agent-eval unavailable/timeout/malformed response\n(implemented, live-verified: real gate failure observed)
-    candidate --> production: PromotionRequest approved\n(Reviewer/Admin, not requester) (implemented, live-verified)
-    production --> retired: automatic on supersession\n(implemented, live-verified)
-    retired --> production: rollback = a new PromotionRequest\nfor this old immutable version (implemented, live-verified)
+    evaluated --> recommended: PromotionRequest approved\n(Reviewer/Admin, not requester) (implemented, live-verified)
+    recommended --> deprecated: automatic on supersession\n(implemented, live-verified)
+    deprecated --> recommended: rollback = a new PromotionRequest\nfor this old immutable version (implemented, live-verified)
 ```
 
 ### Legal transitions and who can request them
@@ -127,15 +127,15 @@ stateDiagram-v2
 | Transition | Trigger | Who can request | Evidence required | Status |
 |---|---|---|---|---|
 | `draft/evaluating → evaluating` | Request an evaluation | Builder (own team), Reviewer, Admin | none | Implemented, live-verified |
-| `evaluating → candidate` | Automated | System (gate evaluator) | all `EvaluationGateResult`s pass | Implemented, live-verified |
+| `evaluating → evaluated` | Automated | System (gate evaluator) | all `EvaluationGateResult`s pass | Implemented, live-verified |
 | `evaluating → draft` | Automated | System | any gate fails, or agent-eval call fails | Implemented, live-verified |
-| `candidate → production` | `PromotionRequest` approved | Requested by Builder/Reviewer/Admin; approved by Reviewer/Admin **who is not the requester** | fresh, passing gate results cited on the request; re-checked live again at decision time | Implemented, live-verified |
-| `production → retired` | Automatic, on a new promotion superseding it | System, as part of the new promotion's transaction | none | Implemented, live-verified |
-| `retired → production` | Rollback - an ordinary `PromotionRequest` for this old immutable version | Same as `candidate → production` | same as `candidate → production`, no exception (`docs/open-questions.md` #2, resolved) | Implemented, live-verified |
+| `evaluated → recommended` | `PromotionRequest` approved | Requested by Builder/Reviewer/Admin; approved by Reviewer/Admin **who is not the requester** | fresh, passing gate results cited on the request; re-checked live again at decision time | Implemented, live-verified |
+| `recommended → deprecated` | Automatic, on a new promotion superseding it | System, as part of the new promotion's transaction | none | Implemented, live-verified |
+| `deprecated → recommended` | Rollback - an ordinary `PromotionRequest` for this old immutable version | Same as `evaluated → recommended` | same as `evaluated → recommended`, no exception (`docs/open-questions.md` #2, resolved) | Implemented, live-verified |
 
-`candidate/production/retired` versions cannot have a new evaluation requested against them (`app/services/evaluations.py::_REQUESTABLE_STAGES = {DRAFT, EVALUATING}`) - live and test-verified to return `409`. A version stuck in `candidate` that later needs re-validation goes through the ordinary route: a new `AgentVersion`.
+`evaluated/recommended/deprecated` versions cannot have a new evaluation requested against them (`app/services/evaluations.py::_REQUESTABLE_STAGES = {DRAFT, EVALUATING}`) - live and test-verified to return `409`. A version stuck in `evaluated` that later needs re-validation goes through the ordinary route: a new `AgentVersion`.
 
-**Not built: a standalone, manual `candidate/draft → retired` "abandon" action.** Phase 0's diagram included it; the Phase 4 brief's actual scope (promotion requests, review, production promotion, rollback, audit) didn't ask for it, and every scenario this phase needed to demonstrate (including rollback, which needs a `retired` version to roll back *to*) is reachable through `production → retired` supersession alone. The only way to reach `retired` as of Phase 4 is by being superseded after having been `production` - a `candidate` that's simply abandoned (never promoted) has no way to leave `candidate` yet other than a fresh `AgentVersion` superseding it in spirit (the old one just stays `candidate`, inert). A small, real gap, not a silent one - worth adding if a real workflow need for it shows up.
+**Not built: a standalone, manual `evaluated/draft → deprecated` "abandon" action.** Phase 0's diagram included it; the Phase 4 brief's actual scope (promotion requests, review, production promotion, rollback, audit) didn't ask for it, and every scenario this phase needed to demonstrate (including rollback, which needs a `deprecated` version to roll back *to*) is reachable through `recommended → deprecated` supersession alone. The only way to reach `deprecated` as of Phase 4 is by being superseded after having been `recommended` - an `evaluated` version that's simply abandoned (never promoted) has no way to leave `evaluated` yet other than a fresh `AgentVersion` superseding it in spirit (the old one just stays `evaluated`, inert). A small, real gap, not a silent one - worth adding if a real workflow need for it shows up.
 
 ### Decision-time freshness: "eligible when requested" vs "eligible when reviewed"
 
@@ -143,21 +143,21 @@ Freshness (`app/services/freshness.py::check_freshness`) is checked live **twice
 
 ### Concurrency: an advisory lock, not `SERIALIZABLE`
 
-Two decisions racing to promote different candidates of the same `Agent` (or double-deciding the same request) are serialized via `pg_advisory_xact_lock(hashtext(agent_id))`, taken at the start of `approve_promotion`/`reject_promotion` before re-reading the request's status - not a row-level `SELECT ... FOR UPDATE` (one approval can touch two `AgentVersionLifecycle` rows: the newly-promoted version's and the previously-production version's, and the latter may not exist yet when the lock must already be held) and not `SERIALIZABLE` isolation (the hazard is a plain concurrent-UPDATE conflict, not a phantom-read anomaly, so the retry-loop machinery `SERIALIZABLE` requires isn't needed). The partial unique index (`UNIQUE (agent_id) WHERE stage='production'`) remains the final DB-level backstop. See [ADR-0007](adrs/0007-promotion-state-machine.md)'s Phase 4 update for the real bug this surfaced (retiring the old production row and promoting the new one must be two separately-flushed statements, in that order - Postgres checks the partial unique index immediately per row, not deferred to transaction end) and `tests/test_promotions.py::test_concurrent_approvals_for_same_agent_only_one_ends_in_production` for the real two-session proof.
+Two decisions racing to promote different candidates of the same `Agent` (or double-deciding the same request) are serialized via `pg_advisory_xact_lock(hashtext(agent_id))`, taken at the start of `approve_promotion`/`reject_promotion` before re-reading the request's status - not a row-level `SELECT ... FOR UPDATE` (one approval can touch two `AgentVersionLifecycle` rows: the newly-promoted version's and the previously-recommended version's, and the latter may not exist yet when the lock must already be held) and not `SERIALIZABLE` isolation (the hazard is a plain concurrent-UPDATE conflict, not a phantom-read anomaly, so the retry-loop machinery `SERIALIZABLE` requires isn't needed). The partial unique index (`UNIQUE (agent_id) WHERE stage='recommended'`) remains the final DB-level backstop. See [ADR-0007](adrs/0007-promotion-state-machine.md)'s Phase 4 update for the real bug this surfaced (deprecating the old recommended row and promoting the new one must be two separately-flushed statements, in that order - Postgres checks the partial unique index immediately per row, not deferred to transaction end) and `tests/test_promotions.py::test_concurrent_approvals_for_same_agent_only_one_ends_in_production` for the real two-session proof (test name predates the Phase 8 rename and was left as-is - see [ADR-0023](adrs/0023-registry-not-deployment-platform.md) on not renaming things the literal word wasn't the source of the problem for).
 
 ### Promotion lifecycle events
 
-`agent_version.promoted` is fanned out via a transactional outbox (`OutboxEvent`, written in the same transaction as the production transition) to a real Pub/Sub topic (`agent-platform-events`, per [ADR-0011](adrs/0011-pubsub-vs-cloud-tasks.md)) - see [ADR-0020](adrs/0020-promotion-lifecycle-event-outbox.md) for the pattern and what was live-verified (real publish, real delivery confirmed via a real subscription pull). No real subscriber service exists yet, same open gap as Cloud Tasks' evaluation-dispatch queue.
+`agent_version.promoted` is fanned out via a transactional outbox (`OutboxEvent`, written in the same transaction as the recommended transition) to a real Pub/Sub topic (`agent-platform-events`, per [ADR-0011](adrs/0011-pubsub-vs-cloud-tasks.md)) - see [ADR-0020](adrs/0020-promotion-lifecycle-event-outbox.md) for the pattern and what was live-verified (real publish, real delivery confirmed via a real subscription pull). No real subscriber service exists yet, same open gap as Cloud Tasks' evaluation-dispatch queue.
 
-### Only one production version per Agent
+### Only one recommended version per Agent
 
-Unchanged from Phase 1/2: `UNIQUE (agent_id) WHERE stage = 'production'` on `AgentVersionLifecycle`. Exercised end-to-end in Phase 4 - see the concurrency section above and `docs/phase-notes/phase-4.md`'s live verification (a real production supersession and a real rollback both went through this exact constraint).
+Unchanged from Phase 1/2: `UNIQUE (agent_id) WHERE stage = 'recommended'` on `AgentVersionLifecycle` (`'production'` before the Phase 8 rename). Exercised end-to-end in Phase 4 - see the concurrency section above and `docs/phase-notes/phase-4.md`'s live verification (a real recommended-version supersession and a real rollback both went through this exact constraint).
 
 ## Live verification summary
 
 Both required Phase 3 workflows were run against the real deployed `agent-eval-api` Cloud Run service, not a local stand-in - full transcript in [`docs/phase-notes/phase-3.md`](phase-notes/phase-3.md):
 
-1. **Passing flow**: the real `incident-investigator@4.2.0` AgentVersion → real evaluation request → real ~4-minute `agent-eval` execution (LangGraph + Vertex AI Gemini) → 11/11 gates computed and passed → `stage: candidate`, `currently_eligible: true`.
-2. **Stale/blocked flow**: revoked a real `AgentCapabilityGrant` on that same candidate version → the historical evaluation run's gates remain unchanged (`all_passed: true`) and `stage` remains `candidate` → but `GET .../candidacy` now reports `currently_eligible: false` with an explicit `capability_grants_changed` stale finding, including the before/after hash.
+1. **Passing flow**: the real `incident-investigator@4.2.0` AgentVersion → real evaluation request → real ~4-minute `agent-eval` execution (LangGraph + Vertex AI Gemini) → 11/11 gates computed and passed → `stage: evaluated` (`candidate` at the time this test ran, before the Phase 8 rename), `currently_eligible: true`.
+2. **Stale/blocked flow**: revoked a real `AgentCapabilityGrant` on that same version → the historical evaluation run's gates remain unchanged (`all_passed: true`) and `stage` remains unchanged → but `GET .../candidacy` now reports `currently_eligible: false` with an explicit `capability_grants_changed` stale finding, including the before/after hash.
 
 This is the "major architectural proof point" the brief called for, observed live rather than only reasoned about.

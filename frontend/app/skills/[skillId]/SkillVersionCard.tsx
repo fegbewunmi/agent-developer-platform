@@ -50,9 +50,9 @@ export function SkillVersionCard({
         ) : (
           <ul className="mt-1 flex flex-col gap-0.5">
             {consumers.map((c) => (
-              <li key={c.agent_version_id}>
+              <li key={c.id}>
                 <Link
-                  href={`/agents/${c.agent_id}/versions/${c.agent_version_id}`}
+                  href={`/agents/${c.agent_id}/versions/${c.id}`}
                   className="text-[12px] text-text-muted hover:text-accent"
                 >
                   {c.agent_name} <span className="mono text-text-faint">{c.version_label}</span>

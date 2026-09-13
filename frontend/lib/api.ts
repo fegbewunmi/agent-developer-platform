@@ -51,10 +51,19 @@ export async function apiFetch<T>(
   }
 
   if (!response.ok) {
+    const rawDetail = body && typeof body === "object" && "detail" in body ? (body as { detail: unknown }).detail : undefined;
     const detail =
-      body && typeof body === "object" && "detail" in body
-        ? String((body as { detail: unknown }).detail)
-        : `Request failed (${response.status})`;
+      typeof rawDetail === "string"
+        ? rawDetail
+        // FastAPI's own 422 validation errors (e.g. a malformed UUID in a
+        // path param) return detail as a list of {loc, msg, type} objects,
+        // not a string - String(list) silently produced "[object Object]"
+        // before this, which told a user nothing about what went wrong.
+        : Array.isArray(rawDetail)
+          ? rawDetail.map((e) => (e && typeof e === "object" && "msg" in e ? String((e as { msg: unknown }).msg) : JSON.stringify(e))).join("; ")
+          : rawDetail !== undefined
+            ? JSON.stringify(rawDetail)
+            : `Request failed (${response.status})`;
     return { ok: false, status: response.status, message: detail };
   }
 

@@ -116,9 +116,13 @@ export interface SkillVersion {
 }
 
 export interface SkillVersionConsumer {
+  // Matches app/api/skills.py::list_agent_versions_using_skill_version's
+  // real response shape - "id" is this AgentVersion's own id, not a typo
+  // for agent_version_id (that name is used on SkillImpactConsumer below,
+  // a different endpoint's shape, to disambiguate from skill_version_id).
+  id: string;
   agent_id: string;
   agent_name: string;
-  agent_version_id: string;
   version_label: string;
 }
 

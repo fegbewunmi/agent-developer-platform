@@ -1,6 +1,6 @@
 # Orion Agent Developer Platform
 
-A shared internal registry where Orion Commerce teams **publish, discover, evaluate, review, and reuse versioned agents and skills** - not just a governance dashboard for one agent, but a place to find what other teams have already built (see [`docs/phase-notes/phase-9.md`](docs/phase-notes/phase-9.md)).
+A shared internal registry where Orion Commerce teams **publish, discover, evaluate, review, and reuse versioned agents and skills** - not just a governance dashboard for one agent, but a place to find what other teams have already built.
 
 This is **not** an agent runtime. It does not execute agents, does not run evaluations, and does not execute MCP tools. It is the system of record for *what agent version is running, what it's built from, what evidence justified promoting it, who approved it, and why* - the same relationship a deployment/release-management system has to the services it tracks, not the relationship a compute platform has to the workloads it runs.
 
@@ -24,19 +24,19 @@ This is **not** an agent runtime. It does not execute agents, does not run evalu
 
 ## Try it live
 
-The deployed instance has a real, public demo - no account needed. Open the login page and click **"Continue as demo Builder"** or **"Continue as demo Reviewer"**: a real Identity Platform sign-in happens server-side and drops you into a sandboxed Agent where you can create/evaluate/promote/review for real, without ever touching the curated Orion Commerce data those screenshots above come from. See [ADR-0022](docs/adrs/0022-public-demo-sandbox.md) and [`docs/phase-notes/phase-7.md`](docs/phase-notes/phase-7.md) for how the sandbox stays contained (spoiler: the real backend authorization model, not a mocked frontend).
+The deployed instance has a real, public demo - no account needed. Open the login page and click **"Continue as demo Builder"** or **"Continue as demo Reviewer"**: a real Identity Platform sign-in happens server-side and drops you into a sandboxed Agent where you can create/evaluate/promote/review for real, without ever touching the curated Orion Commerce data those screenshots above come from. 
 
 ## Running it
 
-**Deployed**: the live instance runs on Cloud Run - see [`docs/gcp-architecture.md`](docs/gcp-architecture.md) for the topology and [`docs/phase-notes/phase-6.md`](docs/phase-notes/phase-6.md) for the deployment record. Beyond the public demo above, the full seeded Orion Commerce organization requires a real account - ask a team member for access rather than assuming a public URL in these docs is meant for unrestricted browsing.
+**Deployed**: the live instance runs on Cloud Run. Beyond the public demo above, the full seeded Orion Commerce organization requires a real account - ask a team member for access rather than assuming a public URL in these docs is meant for unrestricted browsing.
 
 **Locally**: Backend (FastAPI + Postgres): see `backend/README.md` for the real dev-login flow and environment variables. Frontend (Next.js): `cd frontend && npm install && npm run dev`, pointed at the backend via `BACKEND_API_URL` in `frontend/.env.local`. Sign in at `/login` as one of the four seeded Orion Commerce users - see [`docs/frontend-architecture.md`](docs/frontend-architecture.md) for how that auth flow is real, not mocked. `dev-login` is local-only by design - the deployed environment always uses real Identity Platform password sign-in (`docs/auth-and-approval-model.md`).
 
 ## Why this exists
 
-Orion Commerce has multiple teams building AI agents on different frameworks, models, skill sets, and MCP tool integrations. Today there is no shared answer to basic governance questions: which version is recommended for use, what exactly it's built from, what evaluation evidence supported promoting it, which tools it can call and which of those are write-capable, or who approved it. This platform exists to answer those questions consistently across teams, without becoming a second runtime, a second evaluation system, a second MCP implementation, or a deployment/CI system in its own right - see [ADR-0023](docs/adrs/0023-registry-not-deployment-platform.md).
+Orion Commerce has multiple teams building AI agents on different frameworks, models, skill sets, and MCP tool integrations. Today there is no shared answer to basic governance questions: which version is recommended for use, what exactly it's built from, what evaluation evidence supported promoting it, which tools it can call and which of those are write-capable, or who approved it. This platform exists to answer those questions consistently across teams, without becoming a second runtime, a second evaluation system, a second MCP implementation, or a deployment/CI system in its own right 
 
-"What exactly it's built from" is a real, verifiable claim for CI-integrated agents, not just a form field: `incident-investigator`'s real GitHub Actions pipeline publishes each version to this platform with the real commit it was built from, authenticated as a dedicated CI machine identity via Workload Identity Federation - no human can type in a competing `AgentVersion` for that agent. See [ADR-0024](docs/adrs/0024-ci-publishing-machine-identity.md) and [`docs/phase-notes/phase-8.md`](docs/phase-notes/phase-8.md).
+"What exactly it's built from" is a real, verifiable claim for CI-integrated agents, not just a form field: `incident-investigator`'s real GitHub Actions pipeline publishes each version to this platform with the real commit it was built from, authenticated as a dedicated CI machine identity via Workload Identity Federation - no human can type in a competing `AgentVersion` for that agent. 
 
 ## Real integrations, not simulated ones
 
@@ -74,4 +74,4 @@ Where these systems have real gaps (no auth, a synchronous-only evaluation API, 
 
 ## Sample organization: Orion Commerce
 
-Seeded teams, users, and agents used throughout the docs and, later, the seed data - see [`docs/product-overview.md`](docs/product-overview.md#orion-commerce-sample-organization) for the full roster. Only the Incident Investigator is a real runtime integration; the Customer Support Agent and Release Risk Agent are representative platform data, clearly marked as such wherever they appear.
+Seeded teams, users, and agents used throughout the docs and, later, the seed data - see [`docs/product-overview.md`](docs/product-overview.md#orion-commerce-sample-organization) for the full roster.

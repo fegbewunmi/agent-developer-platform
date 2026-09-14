@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
 const TOKEN_COOKIE = "orion_token";
-const PUBLIC_PATHS = ["/login", "/api/auth/login"];
+// /api/auth/quick-switch is safe to leave unauthenticated here - the route
+// itself 404s unless QUICK_SWITCH_ENABLED is set (see that route's own
+// docstring), and it needs to be reachable from the login page itself so a
+// tester isn't locked out with no session and no known password.
+const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/quick-switch"];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

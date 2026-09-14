@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { LoginForm } from "./LoginForm";
 import { PasswordLoginForm } from "./PasswordLoginForm";
 import { DemoLoginButtons } from "./DemoLoginButtons";
+import { QuickSwitchLoginButtons } from "./QuickSwitchLoginButtons";
 import type { DevLoginUser } from "@/lib/types";
 
 const BACKEND_URL = process.env.BACKEND_API_URL ?? "http://127.0.0.1:8000";
@@ -62,6 +63,15 @@ export default async function LoginPage({
               Or explore without an account
             </p>
             <DemoLoginButtons next={next} />
+          </div>
+        )}
+
+        {process.env.QUICK_SWITCH_ENABLED && (
+          <div className="mt-4 rounded-lg border border-warn/30 bg-warn-muted/40 p-5">
+            <p className="mb-3 text-[12px] font-medium uppercase tracking-wide text-warn">
+              Testing only - quick switch
+            </p>
+            <QuickSwitchLoginButtons next={next} />
           </div>
         )}
       </div>

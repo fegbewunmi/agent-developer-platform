@@ -1,7 +1,9 @@
 import Link from "next/link";
+import { apiGet } from "@/lib/api";
 import type { Me } from "@/lib/types";
 import { RoleBadge } from "./Badge";
 import { LogoutButton } from "./LogoutButton";
+import { QuickSwitchMenu } from "./QuickSwitchMenu";
 
 const LINKS = [
   { href: "/overview", label: "Overview" },
@@ -12,7 +14,16 @@ const LINKS = [
   { href: "/activity", label: "Activity" },
 ];
 
-export function Nav({ user }: { user: Me }) {
+export async function Nav({ user }: { user: Me }) {
+  // Same "is this the demo actor" check DemoBanner.tsx uses - quick-switch
+  // must never be reachable from the public demo session, only real Orion
+  // Commerce users, and only when explicitly enabled for testing.
+  let showQuickSwitch = false;
+  if (process.env.QUICK_SWITCH_ENABLED) {
+    const status = await apiGet<{ demo_team_id: string }>("/v1/demo/status");
+    showQuickSwitch = !status.ok || status.data.demo_team_id !== user.team_id;
+  }
+
   return (
     <header className="sticky top-0 z-20 border-b border-border bg-bg/95 backdrop-blur">
       <div className="mx-auto flex h-12 max-w-[1400px] items-center gap-6 px-5">
@@ -36,6 +47,7 @@ export function Nav({ user }: { user: Me }) {
             <span>{user.name}</span>
             <RoleBadge role={user.role} />
           </div>
+          {showQuickSwitch && <QuickSwitchMenu currentEmail={user.email} />}
           <LogoutButton />
         </div>
       </div>

@@ -29,7 +29,7 @@ The deployed instance has a real, public demo - no account needed. Open the logi
 ## Running it
 
 **Deployed**: the live instance runs on Cloud Run. 
-https://agent-platform-web-159087954477.us-central1.run.app
+[Live](https://agent-platform-web-159087954477.us-central1.run.app)
 
 **Locally**: Backend (FastAPI + Postgres): see `backend/README.md` for the real dev-login flow and environment variables. Frontend (Next.js): `cd frontend && npm install && npm run dev`, pointed at the backend via `BACKEND_API_URL` in `frontend/.env.local`. Sign in at `/login` as one of the four seeded Orion Commerce users - see [`docs/frontend-architecture.md`](docs/frontend-architecture.md) for how that auth flow is real, not mocked. `dev-login` is local-only by design - the deployed environment always uses real Identity Platform password sign-in (`docs/auth-and-approval-model.md`).
 
